@@ -28,6 +28,9 @@ export default class MiraExtension extends Extension {
         this._wireClient();
         this._applyMode();
 
+        // Build marker so it's obvious in the log which code is running.
+        console.log('[mira] extension enabled — always-on eyes + glance build');
+
         this._settingsChangedId = this._settings.connect('changed', (_s, key) => {
             if (key === 'mode')
                 this._applyMode();

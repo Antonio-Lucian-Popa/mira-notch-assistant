@@ -47,6 +47,7 @@ class Notch extends St.Bin {
         this._vizTimer = 0;
         // Mascot (always-on resting eyes), toggled by the `mascot` setting.
         this._blinkTimer = 0;
+        this._glanceTimer = 0;
 
         this._buildContent();
         this._computeSizes();
@@ -403,9 +404,9 @@ class Notch extends St.Bin {
         this._clock.visible = !showEyes && !showViz;
 
         if (showEyes && !this._open)
-            this._startBlink();
+            this._startEyeAnims();
         else
-            this._stopBlink();
+            this._stopEyeAnims();
     }
 
     refreshMedia() {
@@ -551,7 +552,18 @@ class Notch extends St.Bin {
     }
 
     _cancelIdle() {
+        this._stopEyeAnims();
+    }
+
+    _startEyeAnims() {
+        this._startBlink();
+        this._startGlance();
+    }
+
+    _stopEyeAnims() {
         this._stopBlink();
+        this._stopGlance();
+        this._wakeEyes();
     }
 
     _startBlink() {
@@ -574,10 +586,10 @@ class Notch extends St.Bin {
             GLib.source_remove(this._blinkTimer);
             this._blinkTimer = 0;
         }
-        this._wakeEyes();
     }
 
     _blink() {
+        // Only animates height, so a concurrent glance (translation_x) is kept.
         for (const eye of this._eyeActors ?? []) {
             eye.ease({
                 height: 1,
@@ -593,10 +605,51 @@ class Notch extends St.Bin {
         }
     }
 
+    // Occasionally glance to one side and drift back — a bit of life.
+    _startGlance() {
+        if (this._glanceTimer)
+            return;
+        const schedule = () => {
+            const delay = 3500 + Math.floor(Math.random() * 4500);
+            this._glanceTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+                this._glance();
+                schedule();
+                return GLib.SOURCE_REMOVE;
+            });
+        };
+        schedule();
+    }
+
+    _stopGlance() {
+        if (this._glanceTimer) {
+            GLib.source_remove(this._glanceTimer);
+            this._glanceTimer = 0;
+        }
+    }
+
+    _glance() {
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        const offset = 4 * dir;
+        for (const eye of this._eyeActors ?? []) {
+            eye.ease({
+                translation_x: offset,
+                duration: 320,
+                mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                onComplete: () =>
+                    eye.ease({
+                        translation_x: 0,
+                        duration: 520,
+                        mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
+                    }),
+            });
+        }
+    }
+
     _wakeEyes() {
         for (const eye of this._eyeActors ?? []) {
             eye.remove_all_transitions();
             eye.set_height(this._eyeH);
+            eye.translation_x = 0;
             eye.opacity = 255;
         }
     }
@@ -619,10 +672,11 @@ class Notch extends St.Bin {
             this._clockTimer,
             this._vizTimer,
             this._blinkTimer,
+            this._glanceTimer,
         ])
             if (t)
                 GLib.source_remove(t);
         this._closeTimer = this._alertTimer = this._clockTimer = this._vizTimer = 0;
-        this._blinkTimer = 0;
+        this._blinkTimer = this._glanceTimer = 0;
     }
 });
