@@ -1,0 +1,24 @@
+[package]
+name = "mira-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Mira's Linux daemon: a D-Bus service (ro.novabytecode.Mira) wiring core to MPRIS/UPower."
+
+[[bin]]
+name = "mira-daemon"
+path = "src/main.rs"
+
+[dependencies]
+mira-core = { path = "../mira-core" }
+tracing = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+mira-platform-linux = { path = "../mira-platform-linux" }
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "sync", "time", "signal"] }
+zbus = { version = "6", default-features = false, features = ["tokio", "proxy", "service", "object-manager"] }
+futures-util = "0.3"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }

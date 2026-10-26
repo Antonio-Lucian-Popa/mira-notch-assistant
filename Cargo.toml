@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/mira-core",
+    "crates/mira-platform-linux",
+    "crates/mira-daemon",
 ]
 
 # Platform crates and binaries are added to `members` in their own build steps:
