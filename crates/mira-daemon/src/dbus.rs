@@ -8,12 +8,16 @@
 //! properties and react to signals.
 
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::Mutex;
 use zbus::object_server::SignalEmitter;
 
 use mira_core::app::AppState;
+use mira_core::model::PomodoroPhase;
+use mira_core::pomodoro::PomodoroEngine;
 use mira_core::source::MediaControl;
+use mira_core::store::Store;
 
 pub const PATH: &str = "/ro/novabytecode/Mira";
 pub const BUS_NAME: &str = "ro.novabytecode.Mira";
@@ -22,10 +26,35 @@ pub const BUS_NAME: &str = "ro.novabytecode.Mira";
 pub struct Shared {
     pub state: Mutex<AppState>,
     pub control: Arc<dyn MediaControl>,
+    pub store: Mutex<Store>,
+    pub pomodoro: Mutex<PomodoroEngine>,
+    pub water_goal: u32,
 }
 
 fn to_fdo(e: mira_core::Error) -> zbus::fdo::Error {
     zbus::fdo::Error::Failed(e.to_string())
+}
+
+/// Seconds since the Unix epoch.
+pub fn now_epoch() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// A per-day key for the water log. Uses the UTC day number, so the counter
+/// resets at UTC midnight (good enough for phase 1 of the feature).
+pub fn today_key() -> String {
+    (now_epoch() / 86_400).to_string()
+}
+
+pub fn phase_str(p: PomodoroPhase) -> &'static str {
+    match p {
+        PomodoroPhase::Work => "work",
+        PomodoroPhase::ShortBreak => "short_break",
+        PomodoroPhase::LongBreak => "long_break",
+    }
 }
 
 // --- Service ---------------------------------------------------------------
@@ -325,4 +354,273 @@ pub async fn emit_system(iface: &zbus::object_server::InterfaceRef<SystemIface>)
     let s = iface.get().await;
     let e = iface.signal_emitter();
     let _ = s.fullscreen_changed(e).await;
+}
+
+// --- Pomodoro (focus timer) ------------------------------------------------
+
+pub struct PomodoroIface {
+    pub shared: Arc<Shared>,
+}
+
+#[zbus::interface(name = "ro.novabytecode.Mira.Pomodoro")]
+impl PomodoroIface {
+    #[zbus(property)]
+    async fn phase(&self) -> String {
+        phase_str(self.shared.pomodoro.lock().await.snapshot().phase).to_string()
+    }
+    #[zbus(property)]
+    async fn remaining_secs(&self) -> i64 {
+        self.shared.pomodoro.lock().await.snapshot().remaining_secs
+    }
+    #[zbus(property)]
+    async fn running(&self) -> bool {
+        self.shared.pomodoro.lock().await.is_running()
+    }
+    #[zbus(property)]
+    async fn completed_cycles(&self) -> u32 {
+        self.shared
+            .pomodoro
+            .lock()
+            .await
+            .snapshot()
+            .completed_cycles
+    }
+
+    async fn start(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+        self.shared.pomodoro.lock().await.start();
+        let _ = self.running_changed(&e).await;
+        Ok(())
+    }
+    async fn pause(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+        self.shared.pomodoro.lock().await.pause();
+        let _ = self.running_changed(&e).await;
+        Ok(())
+    }
+    async fn toggle(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+        self.shared.pomodoro.lock().await.toggle();
+        let _ = self.running_changed(&e).await;
+        Ok(())
+    }
+    async fn reset(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+        self.shared.pomodoro.lock().await.reset();
+        pomo_emit_all(self, &e).await;
+        Ok(())
+    }
+    async fn skip(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+        let phase = self.shared.pomodoro.lock().await.skip();
+        pomo_emit_all(self, &e).await;
+        let _ = Self::phase_elapsed(&e, phase_str(phase)).await;
+        Ok(())
+    }
+
+    /// The timer rolled over into a new phase (for a notch alert).
+    #[zbus(signal)]
+    pub async fn phase_elapsed(emitter: &SignalEmitter<'_>, phase: &str) -> zbus::Result<()>;
+}
+
+async fn pomo_emit_all(iface: &PomodoroIface, e: &SignalEmitter<'_>) {
+    let _ = iface.phase_changed(e).await;
+    let _ = iface.remaining_secs_changed(e).await;
+    let _ = iface.running_changed(e).await;
+    let _ = iface.completed_cycles_changed(e).await;
+}
+
+pub async fn emit_pomodoro(iface: &zbus::object_server::InterfaceRef<PomodoroIface>) {
+    let p = iface.get().await;
+    pomo_emit_all(&p, iface.signal_emitter()).await;
+}
+
+// --- Water -----------------------------------------------------------------
+
+pub struct WaterIface {
+    pub shared: Arc<Shared>,
+}
+
+#[zbus::interface(name = "ro.novabytecode.Mira.Water")]
+impl WaterIface {
+    #[zbus(property)]
+    async fn glasses_today(&self) -> u32 {
+        self.shared
+            .store
+            .lock()
+            .await
+            .water_glasses(&today_key())
+            .unwrap_or(0)
+    }
+    #[zbus(property)]
+    async fn goal(&self) -> u32 {
+        self.shared.water_goal
+    }
+
+    async fn add(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .water_adjust(&today_key(), 1)
+            .map_err(to_fdo)?;
+        let _ = self.glasses_today_changed(&e).await;
+        Ok(())
+    }
+    async fn remove(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .water_adjust(&today_key(), -1)
+            .map_err(to_fdo)?;
+        let _ = self.glasses_today_changed(&e).await;
+        Ok(())
+    }
+}
+
+// --- Todo ------------------------------------------------------------------
+
+pub struct TodoIface {
+    pub shared: Arc<Shared>,
+}
+
+#[zbus::interface(name = "ro.novabytecode.Mira.Todo")]
+impl TodoIface {
+    /// All todos as `(id, text, done, remind_at_epoch)`; remind 0 means none.
+    async fn get_items(&self) -> Vec<(i64, String, bool, i64)> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .todos()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| (t.id, t.text, t.done, t.remind_at_epoch.unwrap_or(0)))
+            .collect()
+    }
+
+    async fn add(
+        &self,
+        text: String,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<i64> {
+        let id = self
+            .shared
+            .store
+            .lock()
+            .await
+            .add_todo(&text)
+            .map_err(to_fdo)?;
+        let _ = Self::items_changed(&e).await;
+        Ok(id)
+    }
+
+    async fn toggle(
+        &self,
+        id: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        {
+            let store = self.shared.store.lock().await;
+            let todos = store.todos().map_err(to_fdo)?;
+            if let Some(t) = todos.iter().find(|t| t.id == id) {
+                store.set_todo_done(id, !t.done).map_err(to_fdo)?;
+            }
+        }
+        let _ = Self::items_changed(&e).await;
+        Ok(())
+    }
+
+    async fn remove(
+        &self,
+        id: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .remove_todo(id)
+            .map_err(to_fdo)?;
+        let _ = Self::items_changed(&e).await;
+        Ok(())
+    }
+
+    /// Set a reminder time (epoch seconds); `0` clears it.
+    async fn set_reminder(
+        &self,
+        id: i64,
+        epoch: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let r = if epoch > 0 { Some(epoch) } else { None };
+        self.shared
+            .store
+            .lock()
+            .await
+            .set_todo_reminder(id, r)
+            .map_err(to_fdo)?;
+        let _ = Self::items_changed(&e).await;
+        Ok(())
+    }
+
+    #[zbus(signal)]
+    pub async fn items_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
+    /// A todo's reminder came due (for a notch alert).
+    #[zbus(signal)]
+    pub async fn reminder_due(emitter: &SignalEmitter<'_>, id: i64, text: &str)
+        -> zbus::Result<()>;
+}
+
+// --- Shelf -----------------------------------------------------------------
+
+pub struct ShelfIface {
+    pub shared: Arc<Shared>,
+}
+
+#[zbus::interface(name = "ro.novabytecode.Mira.Shelf")]
+impl ShelfIface {
+    /// Shelf items as `(id, path, added_epoch)`. Paths only — never contents.
+    async fn get_items(&self) -> Vec<(i64, String, i64)> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .shelf_items()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| (s.id, s.path, s.added_epoch))
+            .collect()
+    }
+
+    async fn add(
+        &self,
+        path: String,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<i64> {
+        let id = self
+            .shared
+            .store
+            .lock()
+            .await
+            .add_shelf_item(&path, now_epoch())
+            .map_err(to_fdo)?;
+        let _ = Self::items_changed(&e).await;
+        Ok(id)
+    }
+
+    async fn remove(
+        &self,
+        id: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .remove_shelf_item(id)
+            .map_err(to_fdo)?;
+        let _ = Self::items_changed(&e).await;
+        Ok(())
+    }
+
+    #[zbus(signal)]
+    pub async fn items_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }

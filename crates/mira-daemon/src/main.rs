@@ -39,9 +39,12 @@ mod linux {
 
     use mira_platform_linux::{new_mpris, UPowerSource};
 
+    use mira_core::pomodoro::PomodoroEngine;
+    use mira_core::store::Store;
+
     use crate::dbus::{
-        self, LyricsIface, MediaIface, PowerIface, ServiceIface, Shared, SystemIface, BUS_NAME,
-        PATH,
+        self, LyricsIface, MediaIface, PomodoroIface, PowerIface, ServiceIface, Shared, ShelfIface,
+        SystemIface, TodoIface, WaterIface, BUS_NAME, PATH,
     };
 
     pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,9 +70,20 @@ mod linux {
         let conn = zbus::connection::Builder::session().build().await?;
         let (mpris_source, mpris_control) = new_mpris(conn.clone());
 
+        // Local persistence (falls back to in-memory if the DB can't be opened).
+        let store = store::db_path()
+            .and_then(|p| Store::open(&p))
+            .or_else(|e| {
+                tracing::warn!("opening database failed ({e}); using in-memory store");
+                Store::open_in_memory()
+            })?;
+
         let shared = Arc::new(Shared {
             state: Mutex::new(AppState::new()),
             control: Arc::new(mpris_control),
+            store: Mutex::new(store),
+            pomodoro: Mutex::new(PomodoroEngine::new(config.pomodoro_config())),
+            water_goal: config.water_goal,
         });
 
         // Register the interfaces, then claim the well-known name.
@@ -115,6 +129,38 @@ mod linux {
                 },
             )
             .await?;
+        server
+            .at(
+                PATH,
+                PomodoroIface {
+                    shared: shared.clone(),
+                },
+            )
+            .await?;
+        server
+            .at(
+                PATH,
+                WaterIface {
+                    shared: shared.clone(),
+                },
+            )
+            .await?;
+        server
+            .at(
+                PATH,
+                TodoIface {
+                    shared: shared.clone(),
+                },
+            )
+            .await?;
+        server
+            .at(
+                PATH,
+                ShelfIface {
+                    shared: shared.clone(),
+                },
+            )
+            .await?;
         conn.request_name(BUS_NAME).await?;
         tracing::info!("mira-daemon serving {BUS_NAME} at {PATH}");
 
@@ -148,6 +194,74 @@ mod linux {
                     let changed = shared.state.lock().await.tick_active_line();
                     if let Some(idx) = changed {
                         bus.publish(AppEvent::ActiveLine(idx));
+                    }
+                }
+            });
+        }
+
+        // Pomodoro: tick once a second; emit property changes while running and
+        // a phase-elapsed signal on rollover. Idle when the timer isn't running.
+        {
+            let conn = conn.clone();
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                let iface = match conn
+                    .object_server()
+                    .interface::<_, PomodoroIface>(PATH)
+                    .await
+                {
+                    Ok(i) => i,
+                    Err(_) => return,
+                };
+                let mut tick = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    tick.tick().await;
+                    let result = shared.pomodoro.lock().await.tick();
+                    match result {
+                        mira_core::pomodoro::TickResult::Idle => {}
+                        mira_core::pomodoro::TickResult::Counted => {
+                            dbus::emit_pomodoro(&iface).await;
+                        }
+                        mira_core::pomodoro::TickResult::PhaseChanged(phase) => {
+                            dbus::emit_pomodoro(&iface).await;
+                            let _ = PomodoroIface::phase_elapsed(
+                                iface.signal_emitter(),
+                                dbus::phase_str(phase),
+                            )
+                            .await;
+                        }
+                    }
+                }
+            });
+        }
+
+        // Todo reminders: check periodically; fire once, then clear the reminder.
+        {
+            let conn = conn.clone();
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                let iface = match conn.object_server().interface::<_, TodoIface>(PATH).await {
+                    Ok(i) => i,
+                    Err(_) => return,
+                };
+                let mut tick = tokio::time::interval(Duration::from_secs(20));
+                loop {
+                    tick.tick().await;
+                    let due = {
+                        let store = shared.store.lock().await;
+                        let due = store.due_reminders(dbus::now_epoch()).unwrap_or_default();
+                        for t in &due {
+                            let _ = store.set_todo_reminder(t.id, None);
+                        }
+                        due
+                    };
+                    if !due.is_empty() {
+                        for t in &due {
+                            let _ = TodoIface::reminder_due(iface.signal_emitter(), t.id, &t.text)
+                                .await;
+                        }
+                        // The cleared reminders changed the list.
+                        let _ = TodoIface::items_changed(iface.signal_emitter()).await;
                     }
                 }
             });
