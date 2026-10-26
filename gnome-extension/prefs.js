@@ -73,7 +73,7 @@ export default class MiraPreferences extends ExtensionPreferences {
 
         const mascotRow = new Adw.SwitchRow({
             title: _('Mascot'),
-            subtitle: _('After a while idle, show sleepy eyes instead of the clock'),
+            subtitle: _('Use animated eyes as the resting face instead of the clock'),
         });
         settings.bind('mascot', mascotRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         group.add(mascotRow);

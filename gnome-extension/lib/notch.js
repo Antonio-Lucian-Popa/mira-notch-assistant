@@ -45,11 +45,8 @@ class Notch extends St.Bin {
         this._alertTimer = 0;
         this._clockTimer = 0;
         this._vizTimer = 0;
-        // Mascot (resting eyes), off by default via the `mascot` setting.
-        this._mascotActive = false;
-        this._idleTimer = 0;
+        // Mascot (always-on resting eyes), toggled by the `mascot` setting.
         this._blinkTimer = 0;
-        this._sleepTimer = 0;
 
         this._buildContent();
         this._computeSizes();
@@ -386,11 +383,6 @@ class Notch extends St.Bin {
 
         this._hasTrack = hasTrack;
         this._playing = playing;
-        // Actively playing music counts as activity: keep the mascot away.
-        // A merely *paused* track (browsers keep an MPRIS session around) must
-        // not block resting, so we gate on `playing`, not `hasTrack`.
-        if (playing)
-            this._resetIdle();
         this._updateClosedVisual();
         if (playing)
             this._startVisualizer();
@@ -398,15 +390,22 @@ class Notch extends St.Bin {
             this._stopVisualizer();
     }
 
-    // Decide what the closed notch shows: mascot eyes > visualizer > clock.
+    // Decide the closed face: mascot eyes (always, when enabled) > visualizer
+    // (while playing) > clock. Also drives the blink loop so it only runs while
+    // the eyes are actually the visible closed face.
     _updateClosedVisual() {
         const minimal = this._settings.get_boolean('minimal');
-        const showEyes = this._mascotActive && !minimal;
+        const showEyes = this._settings.get_boolean('mascot') && !minimal;
         // Visualizer only while actually playing, not for a paused track.
         const showViz = !showEyes && this._playing && !minimal;
         this._eyes.visible = showEyes;
         this._viz.visible = showViz;
         this._clock.visible = !showEyes && !showViz;
+
+        if (showEyes && !this._open)
+            this._startBlink();
+        else
+            this._stopBlink();
     }
 
     refreshMedia() {
@@ -534,91 +533,36 @@ class Notch extends St.Bin {
         }
     }
 
-    // --- mascot (resting eyes) ---
-    // After `idleTimeoutMs` of no interaction (and no music), the clock gives
-    // way to two eyes that blink for a while and then fall asleep. Any activity
-    // wakes it and restores the clock. Controlled by the `mascot` setting
-    // (off by default).
+    // --- mascot (always-on resting eyes) ---
+    // When the `mascot` setting is on, two always-blinking eyes are the notch's
+    // resting face: no clock, no idle delay, no falling asleep. Hover opens the
+    // notch as usual; closing returns to the eyes. When off, the clock is the
+    // resting face. Blinking runs only while the eyes are the visible closed
+    // face, so it costs nothing when the notch is open or the mascot is off.
+    //
+    // These three helpers are called from the open/close/alert/settings paths;
+    // with always-on eyes they just re-sync the closed face and the blink loop.
     _armIdle() {
-        this._clearIdleTimer();
-        if (!this._settings.get_boolean('mascot'))
-            return;
-        const timeout = this._tokens.mascot?.idleTimeoutMs ?? 60000;
-        this._idleTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, timeout, () => {
-            this._idleTimer = 0;
-            this._enterMascot();
-            return GLib.SOURCE_REMOVE;
-        });
+        this._updateClosedVisual();
     }
 
-    _clearIdleTimer() {
-        if (this._idleTimer) {
-            GLib.source_remove(this._idleTimer);
-            this._idleTimer = 0;
-        }
-    }
-
-    // User activity: drop the mascot and re-arm the idle countdown.
     _resetIdle() {
-        this._exitMascot();
-        this._armIdle();
+        this._updateClosedVisual();
     }
 
-    // Leaving the closed state (hover/alert): drop the mascot, don't re-arm —
-    // the countdown restarts when we settle back into the closed state.
     _cancelIdle() {
-        this._clearIdleTimer();
-        this._exitMascot();
-    }
-
-    _enterMascot() {
-        if (!this._settings.get_boolean('mascot'))
-            return;
-        if (this._open || this._playing || this._settings.get_boolean('minimal'))
-            return;
-        this._mascotActive = true;
-        this._wakeEyes();
-        this._updateClosedVisual();
-        this._startBlink();
-        // Blink calmly for a bit, then nod off.
-        this._sleepTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 6000, () => {
-            this._sleepTimer = 0;
-            this._fallAsleep();
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    _exitMascot() {
-        if (!this._mascotActive && !this._blinkTimer && !this._sleepTimer)
-            return;
-        this._mascotActive = false;
         this._stopBlink();
-        if (this._sleepTimer) {
-            GLib.source_remove(this._sleepTimer);
-            this._sleepTimer = 0;
-        }
-        this._wakeEyes();
-        this._updateClosedVisual();
-    }
-
-    _wakeEyes() {
-        for (const eye of this._eyeActors ?? []) {
-            eye.remove_all_transitions();
-            eye.set_height(this._eyeH);
-            eye.opacity = 255;
-        }
     }
 
     _startBlink() {
-        this._stopBlink();
+        if (this._blinkTimer)
+            return;
         const schedule = () => {
-            const delay = 2500 + Math.floor(Math.random() * 2500);
+            // Occasional, lively blinks.
+            const delay = 2400 + Math.floor(Math.random() * 2600);
             this._blinkTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
                 this._blink();
-                if (this._mascotActive)
-                    schedule();
-                else
-                    this._blinkTimer = 0;
+                schedule();
                 return GLib.SOURCE_REMOVE;
             });
         };
@@ -630,6 +574,7 @@ class Notch extends St.Bin {
             GLib.source_remove(this._blinkTimer);
             this._blinkTimer = 0;
         }
+        this._wakeEyes();
     }
 
     _blink() {
@@ -648,17 +593,11 @@ class Notch extends St.Bin {
         }
     }
 
-    _fallAsleep() {
-        this._stopBlink();
-        const dur = this._tokens.mascot?.sleepTransitionMs ?? 1200;
+    _wakeEyes() {
         for (const eye of this._eyeActors ?? []) {
             eye.remove_all_transitions();
-            eye.ease({
-                height: 2,
-                opacity: 110,
-                duration: dur,
-                mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
-            });
+            eye.set_height(this._eyeH);
+            eye.opacity = 255;
         }
     }
 
@@ -679,13 +618,11 @@ class Notch extends St.Bin {
             this._alertTimer,
             this._clockTimer,
             this._vizTimer,
-            this._idleTimer,
             this._blinkTimer,
-            this._sleepTimer,
         ])
             if (t)
                 GLib.source_remove(t);
         this._closeTimer = this._alertTimer = this._clockTimer = this._vizTimer = 0;
-        this._idleTimer = this._blinkTimer = this._sleepTimer = 0;
+        this._blinkTimer = 0;
     }
 });

@@ -42,7 +42,7 @@ pub struct Config {
     pub mode: NotchMode,
     /// Collapse the closed notch to a thin line.
     pub minimal: bool,
-    /// Enable the sleepy-eyes mascot (resting state) after inactivity.
+    /// Use the always-animated eyes as the notch's resting face.
     pub mascot: bool,
     /// Launch on login.
     pub autostart: bool,

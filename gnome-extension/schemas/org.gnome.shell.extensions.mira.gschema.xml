@@ -41,7 +41,7 @@
     <key name="mascot" type="b">
       <default>false</default>
       <summary>Mascot</summary>
-      <description>Show the sleepy-eyes mascot (resting state) after inactivity.</description>
+      <description>Use the always-animated eyes as the notch's resting face instead of the clock.</description>
     </key>
   </schema>
 </schemalist>
