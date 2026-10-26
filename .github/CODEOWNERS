@@ -1,0 +1,10 @@
+# Code owners for Mira.
+# Pull requests that touch these paths automatically request a review from the
+# owner. Keep this in sync with the repository owner's GitHub username.
+#
+# NOTE: while the project has a single maintainer, do NOT turn on
+# "Require review from Code Owners" in branch protection — GitHub won't let you
+# approve your own PR, which would block solo merges. The file below still
+# auto-requests your review, which is harmless.
+
+* @Antonio-Lucian-Popa
