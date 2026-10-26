@@ -1,0 +1,15 @@
+[Unit]
+Description=Mira notch daemon (D-Bus service ro.novabytecode.Mira)
+Documentation=https://github.com/antonio-lucian-popa/mira-notch-assistant
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=ro.novabytecode.Mira
+ExecStart=/usr/bin/mira-daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

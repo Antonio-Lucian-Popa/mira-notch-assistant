@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=ro.novabytecode.Mira
+Exec=/usr/bin/mira-daemon
+SystemdService=mira-daemon.service
