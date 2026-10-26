@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="mira">
+  <enum id="org.gnome.shell.extensions.mira.mode">
+    <value nick="floating" value="0"/>
+    <value nick="integrated" value="1"/>
+  </enum>
+
+  <enum id="org.gnome.shell.extensions.mira.language">
+    <value nick="auto" value="0"/>
+    <value nick="ro" value="1"/>
+    <value nick="en" value="2"/>
+  </enum>
+
+  <schema id="org.gnome.shell.extensions.mira"
+          path="/org/gnome/shell/extensions/mira/">
+    <key name="mode" enum="org.gnome.shell.extensions.mira.mode">
+      <default>'floating'</default>
+      <summary>Notch mode</summary>
+      <description>Floating pill, or integrated into the panel's clock area.</description>
+    </key>
+
+    <key name="minimal" type="b">
+      <default>false</default>
+      <summary>Minimal closed notch</summary>
+      <description>Collapse the closed notch to a thin line.</description>
+    </key>
+
+    <key name="size-scale" type="d">
+      <range min="0.8" max="1.6"/>
+      <default>1.0</default>
+      <summary>Size multiplier</summary>
+      <description>Manual size multiplier applied on top of the wide-monitor auto scale.</description>
+    </key>
+
+    <key name="language" enum="org.gnome.shell.extensions.mira.language">
+      <default>'auto'</default>
+      <summary>Language</summary>
+      <description>Interface language; 'auto' follows the daemon's locale.</description>
+    </key>
+
+    <key name="mascot" type="b">
+      <default>false</default>
+      <summary>Mascot</summary>
+      <description>Show the sleepy-eyes mascot after inactivity (phase 2).</description>
+    </key>
+  </schema>
+</schemalist>

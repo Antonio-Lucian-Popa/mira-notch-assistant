@@ -27,10 +27,10 @@ mira-notch-assistant/
 ├─ crates/
 │  ├─ mira-core/              # ✅ OS-agnostic logic (state, events, lyrics, storage)
 │  ├─ mira-platform-win/      # ⏳ Windows data sources (GSMTC, WMI, …)
-│  ├─ mira-platform-linux/    # ⏳ Linux data sources (MPRIS, UPower, … via D-Bus)
+│  ├─ mira-platform-linux/    # ✅ Linux data sources (MPRIS, UPower, … via D-Bus)
 │  ├─ mira-win/               # ⏳ Windows executable (native UI + tray)
-│  └─ mira-daemon/            # ⏳ Linux daemon (D-Bus service ro.novabytecode.Mira)
-├─ gnome-extension/           # ⏳ GNOME Shell UI (GJS)
+│  └─ mira-daemon/            # ✅ Linux daemon (D-Bus service ro.novabytecode.Mira)
+├─ gnome-extension/           # ✅ GNOME Shell UI (GJS)
 └─ packaging/                 # ⏳ Windows installer, .deb, systemd unit
 ```
 
@@ -78,8 +78,39 @@ cargo test -p mira-core -- --nocapture
   plain fallback, instrumental handling) without hitting the network.
 - **Persistence** — `store::tests` round-trip `config.toml` and the SQLite shelf.
 
-Platform-specific "how to test manually" sections (Windows notch, GNOME
-extension) are added as those hosts land.
+### How to test manually (Linux: daemon + GNOME extension)
+
+Build and smoke-test the daemon on a private session bus (no GNOME needed):
+
+```sh
+cargo build -p mira-daemon
+dbus-run-session -- bash -c '
+  ./target/debug/mira-daemon &
+  sleep 2
+  busctl --user introspect ro.novabytecode.Mira /ro/novabytecode/Mira
+  busctl --user call ro.novabytecode.Mira /ro/novabytecode/Mira \
+      ro.novabytecode.Mira.Service Ping
+'
+```
+
+On a real Ubuntu/GNOME (Wayland) session:
+
+```sh
+# 1. Run the daemon (MPRIS needs the session bus, UPower the system bus).
+cargo run -p mira-daemon
+
+# 2. Build & install the extension, then log out/in and enable it.
+./gnome-extension/build.sh install
+gnome-extensions enable mira@novabytecode.ro
+```
+
+Then: play/pause music in Spotify or a browser and watch the notch update;
+hover to open; switch to the Lyrics page; plug/unplug the charger to see the
+alert. Check for errors with `journalctl -f /usr/bin/gnome-shell`. If the daemon
+is not running, the notch still shows the clock and the preferences window says
+so.
+
+The Windows "how to test manually" section is added when that host lands.
 
 ## Roadmap
 

@@ -1,0 +1,133 @@
+/* Mira notch styling. Colors mirror design/tokens.json. Geometry (sizes and
+ * bottom-corner radii) is driven from JS so it stays in sync with the tokens. */
+
+.mira-notch {
+    background-color: rgba(10, 10, 11, 0.95);
+    color: #f2f2f3;
+    border-radius: 0 0 16px 16px;
+    box-shadow: 0 2px 10px 0 rgba(0, 0, 0, 0.45);
+}
+
+.mira-closed {
+    spacing: 8px;
+    padding: 0 14px;
+}
+
+.mira-clock {
+    font-size: 15px;
+    font-weight: 600;
+    color: #f2f2f3;
+}
+
+.mira-open {
+    padding: 10px 14px;
+    spacing: 8px;
+}
+
+.mira-page {
+    spacing: 12px;
+}
+
+.mira-art {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background-color: #26262b;
+}
+
+.mira-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f2f2f3;
+}
+
+.mira-artist {
+    font-size: 12px;
+    color: #9a9aa0;
+}
+
+.mira-controls {
+    spacing: 4px;
+}
+
+.mira-ctl-btn {
+    border-radius: 99px;
+    padding: 6px;
+    color: #f2f2f3;
+}
+
+.mira-ctl-btn:hover {
+    background-color: rgba(242, 242, 243, 0.12);
+}
+
+/* Lyrics */
+.mira-page-lyrics {
+    spacing: 4px;
+}
+
+.mira-lyric-line {
+    font-size: 15px;
+    color: #6e6e76;
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+
+.mira-lyric-line.active {
+    font-size: 16px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.mira-lyric-line:hover {
+    background-color: rgba(242, 242, 243, 0.08);
+}
+
+/* Navigation dots */
+.mira-dots {
+    spacing: 6px;
+    padding-top: 2px;
+}
+
+.mira-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 99px;
+    background-color: #44444b;
+}
+
+.mira-dot.active {
+    background-color: #f2f2f3;
+}
+
+/* Visualizer */
+.mira-viz {
+    spacing: 2px;
+}
+
+.mira-viz-bar {
+    width: 3px;
+    border-radius: 2px;
+    background-color: #8fb0ff;
+}
+
+/* Alerts */
+.mira-alert {
+    spacing: 8px;
+    padding: 0 16px;
+}
+
+.mira-alert-icon {
+    color: #58c06b;
+}
+
+.mira-alert-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #f2f2f3;
+}
+
+/* Placeholder (phase-2) pages */
+.mira-soon {
+    font-size: 13px;
+    color: #9a9aa0;
+}

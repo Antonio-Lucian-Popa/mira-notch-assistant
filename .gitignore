@@ -8,7 +8,8 @@ Cargo.lock.orig
 # GNOME extension build output
 /gnome-extension/dist
 /gnome-extension/*.zip
-/gnome-extension/src/tokens.json
+/gnome-extension/tokens.json
+/gnome-extension/schemas/gschemas.compiled
 
 # Packaging output
 /packaging/windows/Output

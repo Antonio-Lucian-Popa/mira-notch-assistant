@@ -1,0 +1,10 @@
+{
+  "uuid": "mira@novabytecode.ro",
+  "name": "Mira",
+  "description": "A lightweight dynamic-island notch for GNOME: music, synced lyrics, clock and system alerts. Reads its state from the Mira daemon over D-Bus (ro.novabytecode.Mira).",
+  "shell-version": ["46", "47", "48"],
+  "settings-schema": "org.gnome.shell.extensions.mira",
+  "gettext-domain": "mira",
+  "url": "https://github.com/antonio-lucian-popa/mira-notch-assistant",
+  "version-name": "0.1.0"
+}
