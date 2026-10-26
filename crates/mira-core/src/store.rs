@@ -48,6 +48,14 @@ pub struct Config {
     pub autostart: bool,
     /// Manual size multiplier on top of the wide-monitor auto scale.
     pub size_scale: f32,
+
+    // --- phase 2 feature settings ---
+    /// Daily water goal, in glasses.
+    pub water_goal: u32,
+    pub pomodoro_work_min: u32,
+    pub pomodoro_short_break_min: u32,
+    pub pomodoro_long_break_min: u32,
+    pub pomodoro_cycles_before_long: u32,
 }
 
 impl Default for Config {
@@ -59,6 +67,23 @@ impl Default for Config {
             mascot: false,
             autostart: false,
             size_scale: 1.0,
+            water_goal: 8,
+            pomodoro_work_min: 25,
+            pomodoro_short_break_min: 5,
+            pomodoro_long_break_min: 15,
+            pomodoro_cycles_before_long: 4,
+        }
+    }
+}
+
+impl Config {
+    /// Build the pomodoro engine config from these settings.
+    pub fn pomodoro_config(&self) -> crate::pomodoro::PomodoroConfig {
+        crate::pomodoro::PomodoroConfig {
+            work_secs: self.pomodoro_work_min as i64 * 60,
+            short_break_secs: self.pomodoro_short_break_min as i64 * 60,
+            long_break_secs: self.pomodoro_long_break_min as i64 * 60,
+            cycles_before_long: self.pomodoro_cycles_before_long.max(1),
         }
     }
 }
@@ -185,6 +210,93 @@ impl Store {
         self.conn.execute("DELETE FROM shelf WHERE id = ?1", [id])?;
         Ok(())
     }
+
+    // --- Todo ---
+
+    pub fn add_todo(&self, text: &str) -> Result<i64> {
+        self.conn
+            .execute("INSERT INTO todo (text, done) VALUES (?1, 0)", [text])?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn todos(&self) -> Result<Vec<crate::model::Todo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, text, done, remind_at_epoch FROM todo ORDER BY done ASC, id ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(crate::model::Todo {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                done: row.get::<_, i64>(2)? != 0,
+                remind_at_epoch: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub fn set_todo_done(&self, id: i64, done: bool) -> Result<()> {
+        self.conn
+            .execute("UPDATE todo SET done = ?2 WHERE id = ?1", (id, done as i64))?;
+        Ok(())
+    }
+
+    pub fn remove_todo(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM todo WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Set (or clear, with `None`) a todo's reminder time.
+    pub fn set_todo_reminder(&self, id: i64, remind_at_epoch: Option<i64>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE todo SET remind_at_epoch = ?2 WHERE id = ?1",
+            (id, remind_at_epoch),
+        )?;
+        Ok(())
+    }
+
+    /// Todos whose reminder is due at or before `now_epoch` and not yet done.
+    pub fn due_reminders(&self, now_epoch: i64) -> Result<Vec<crate::model::Todo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, text, done, remind_at_epoch FROM todo \
+             WHERE remind_at_epoch IS NOT NULL AND remind_at_epoch <= ?1 AND done = 0",
+        )?;
+        let rows = stmt.query_map([now_epoch], |row| {
+            Ok(crate::model::Todo {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                done: row.get::<_, i64>(2)? != 0,
+                remind_at_epoch: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    // --- Water (per day) ---
+
+    /// Glasses logged for `day` (format "YYYY-MM-DD"); 0 if none.
+    pub fn water_glasses(&self, day: &str) -> Result<u32> {
+        let glasses: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT glasses FROM water_log WHERE day = ?1",
+                [day],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(glasses.unwrap_or(0).max(0) as u32)
+    }
+
+    /// Add `delta` (may be negative) to today's count, clamped at 0; returns new total.
+    pub fn water_adjust(&self, day: &str, delta: i64) -> Result<u32> {
+        let current = self.water_glasses(day)? as i64;
+        let next = (current + delta).max(0);
+        self.conn.execute(
+            "INSERT INTO water_log (day, glasses) VALUES (?1, ?2) \
+             ON CONFLICT(day) DO UPDATE SET glasses = ?2",
+            (day, next),
+        )?;
+        Ok(next as u32)
+    }
 }
 
 #[cfg(test)]
@@ -253,6 +365,48 @@ mod tests {
         let items = store.shelf_items().unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].id, id2);
+    }
+
+    #[test]
+    fn todo_crud_and_reminders() {
+        let store = Store::open_in_memory().unwrap();
+        let a = store.add_todo("Buy milk").unwrap();
+        let b = store.add_todo("Call mom").unwrap();
+        assert_eq!(store.todos().unwrap().len(), 2);
+
+        store.set_todo_done(a, true).unwrap();
+        let todos = store.todos().unwrap();
+        // Done items sort after undone ones.
+        assert_eq!(todos[0].id, b);
+        assert!(todos.iter().find(|t| t.id == a).unwrap().done);
+
+        // Reminders: due only when set, in the past, and not done.
+        store.set_todo_reminder(b, Some(100)).unwrap();
+        store.set_todo_reminder(a, Some(100)).unwrap(); // a is done -> excluded
+        let due = store.due_reminders(150).unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].id, b);
+        assert!(store.due_reminders(50).unwrap().is_empty()); // not yet due
+
+        store.set_todo_reminder(b, None).unwrap();
+        assert!(store.due_reminders(150).unwrap().is_empty());
+
+        store.remove_todo(b).unwrap();
+        assert_eq!(store.todos().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn water_adjust_clamps_and_persists() {
+        let store = Store::open_in_memory().unwrap();
+        let day = "2026-10-26";
+        assert_eq!(store.water_glasses(day).unwrap(), 0);
+        assert_eq!(store.water_adjust(day, 3).unwrap(), 3);
+        assert_eq!(store.water_adjust(day, 1).unwrap(), 4);
+        assert_eq!(store.water_glasses(day).unwrap(), 4);
+        // Clamps at zero.
+        assert_eq!(store.water_adjust(day, -10).unwrap(), 0);
+        // A different day is independent.
+        assert_eq!(store.water_glasses("2026-10-27").unwrap(), 0);
     }
 
     #[test]

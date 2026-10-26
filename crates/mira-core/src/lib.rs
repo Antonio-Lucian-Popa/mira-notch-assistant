@@ -17,6 +17,7 @@ pub mod event;
 pub mod lrclib;
 pub mod lyrics;
 pub mod model;
+pub mod pomodoro;
 pub mod source;
 pub mod store;
 pub mod tokens;
