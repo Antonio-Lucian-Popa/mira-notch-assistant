@@ -1,0 +1,24 @@
+[package]
+name = "mira-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "OS-agnostic core logic for Mira: state model, event bus, source traits, LRC/LRCLIB lyrics, and local persistence."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+dirs = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "sync", "time", "test-util"] }
+tempfile = "3"

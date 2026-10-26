@@ -1,0 +1,22 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# Keep Cargo.lock for the binary crates (reproducible builds); it is committed.
+
+# GNOME extension build output
+/gnome-extension/dist
+/gnome-extension/*.zip
+/gnome-extension/src/tokens.json
+
+# Packaging output
+/packaging/windows/Output
+/packaging/linux/*.deb
+/packaging/linux/build
+
+# Editors / OS
+.vscode
+.idea
+*.swp
+.DS_Store

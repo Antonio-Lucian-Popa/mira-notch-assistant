@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mira-core",
+]
+
+# Platform crates and binaries are added to `members` in their own build steps:
+#   crates/mira-platform-win, crates/mira-platform-linux,
+#   crates/mira-win (Windows bin), crates/mira-daemon (Linux bin).
+# Each OS-specific crate is fully cfg-gated so the workspace builds green on any OS.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+authors = ["Mira contributors"]
+repository = "https://github.com/antonio-lucian-popa/mira-notch-assistant"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "sync", "time"] }
+thiserror = "1"
+async-trait = "0.1"
+dirs = "5"
+
+# HTTP client for LRCLIB. rustls so we carry no system OpenSSL dependency.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+
+# Local persistence. `bundled` compiles its own SQLite, so no system libsqlite needed.
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
