@@ -131,3 +131,16 @@
     font-size: 13px;
     color: #9a9aa0;
 }
+
+/* Mascot (resting eyes) */
+.mira-eyes {
+    spacing: 11px;
+}
+
+.mira-eye {
+    width: 9px;
+    height: 9px;
+    border-radius: 99px;
+    background-color: #8fb0ff;
+    box-shadow: 0 0 6px 0 rgba(143, 176, 255, 0.6);
+}

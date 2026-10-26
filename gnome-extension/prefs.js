@@ -70,6 +70,13 @@ export default class MiraPreferences extends ExtensionPreferences {
             settings.set_string('language', langMap[row.selected])
         );
         group.add(langRow);
+
+        const mascotRow = new Adw.SwitchRow({
+            title: _('Mascot'),
+            subtitle: _('After a while idle, show sleepy eyes instead of the clock'),
+        });
+        settings.bind('mascot', mascotRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        group.add(mascotRow);
     }
 
     _checkDaemon(row) {

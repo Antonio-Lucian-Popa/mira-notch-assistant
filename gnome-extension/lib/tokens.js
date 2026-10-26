@@ -30,6 +30,7 @@ const DEFAULTS = {
         maxScale: 1.6,
     },
     visualizer: {bars: 5, minHeight: 3, maxHeight: 14, gap: 2, fps: 30},
+    mascot: {idleTimeoutMs: 60000, sleepTransitionMs: 1200},
 };
 
 export function loadTokens(extensionPath) {
