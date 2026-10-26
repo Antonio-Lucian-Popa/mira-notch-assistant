@@ -132,6 +132,74 @@
     color: #9a9aa0;
 }
 
+/* Focus (Pomodoro) */
+.mira-page-focus {
+    spacing: 4px;
+}
+
+.mira-focus-phase {
+    font-size: 12px;
+    color: #9a9aa0;
+}
+
+.mira-focus-time {
+    font-size: 26px;
+    font-weight: 600;
+    color: #f2f2f3;
+}
+
+/* Water */
+.mira-water-label {
+    font-size: 18px;
+    font-weight: 600;
+    color: #f2f2f3;
+}
+
+/* Lists (todo, shelf) */
+.mira-list {
+    spacing: 3px;
+}
+
+.mira-row {
+    spacing: 6px;
+    padding: 2px 2px;
+}
+
+.mira-check {
+    min-width: 18px;
+    color: #f2f2f3;
+}
+
+.mira-todo-text {
+    font-size: 13px;
+    color: #f2f2f3;
+}
+
+.mira-todo-done {
+    font-size: 13px;
+    color: #6e6e76;
+}
+
+.mira-todo-entry {
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.mira-shelf-hint {
+    font-size: 11px;
+    color: #9a9aa0;
+    margin-bottom: 4px;
+}
+
+.mira-shelf-name {
+    font-size: 13px;
+    color: #f2f2f3;
+}
+
+.mira-ctl-btn.active {
+    color: #5b8cff;
+}
+
 /* Mascot (resting eyes) */
 .mira-eyes {
     spacing: 11px;

@@ -16,6 +16,10 @@ const IFACE = {
     lyrics: 'ro.novabytecode.Mira.Lyrics',
     power: 'ro.novabytecode.Mira.Power',
     system: 'ro.novabytecode.Mira.System',
+    pomodoro: 'ro.novabytecode.Mira.Pomodoro',
+    water: 'ro.novabytecode.Mira.Water',
+    todo: 'ro.novabytecode.Mira.Todo',
+    shelf: 'ro.novabytecode.Mira.Shelf',
 };
 
 export class MiraClient {
@@ -78,6 +82,8 @@ export class MiraClient {
         this._watchProps('power', 'power-changed');
         this._watchProps('lyrics', 'lyrics-props-changed');
         this._watchProps('system', 'system-changed');
+        this._watchProps('pomodoro', 'pomodoro-changed');
+        this._watchProps('water', 'water-changed');
 
         // Custom signals.
         this._watchSignals();
@@ -86,6 +92,10 @@ export class MiraClient {
         this._emit('availability-changed', this.available);
         this._emit('media-changed');
         this._emit('power-changed');
+        this._emit('pomodoro-changed');
+        this._emit('water-changed');
+        this._emit('todo-changed');
+        this._emit('shelf-changed');
     }
 
     _watchProps(key, event) {
@@ -119,6 +129,37 @@ export class MiraClient {
                 } else if (signal === 'ChargerDisconnected') {
                     this._emit('alert', 'charger-disconnected', Number(params.deepUnpack()[0]));
                 }
+            }),
+        ]);
+
+        const pomodoro = this._proxies.pomodoro;
+        this._signalIds.push([
+            pomodoro,
+            pomodoro.connect('g-signal', (_p, _sender, signal, params) => {
+                if (signal === 'PhaseElapsed')
+                    this._emit('alert', 'pomodoro-phase', params.deepUnpack()[0]);
+            }),
+        ]);
+
+        const todo = this._proxies.todo;
+        this._signalIds.push([
+            todo,
+            todo.connect('g-signal', (_p, _sender, signal, params) => {
+                if (signal === 'ItemsChanged') {
+                    this._emit('todo-changed');
+                } else if (signal === 'ReminderDue') {
+                    const [, text] = params.deepUnpack();
+                    this._emit('alert', 'reminder', text);
+                }
+            }),
+        ]);
+
+        const shelf = this._proxies.shelf;
+        this._signalIds.push([
+            shelf,
+            shelf.connect('g-signal', (_p, _sender, signal, _params) => {
+                if (signal === 'ItemsChanged')
+                    this._emit('shelf-changed');
             }),
         ]);
     }
@@ -164,6 +205,47 @@ export class MiraClient {
         };
     }
 
+    pomodoro() {
+        return {
+            phase: this._get('pomodoro', 'Phase', 'work'),
+            remaining: Number(this._get('pomodoro', 'RemainingSecs', 0)),
+            running: this._get('pomodoro', 'Running', false),
+            cycles: Number(this._get('pomodoro', 'CompletedCycles', 0)),
+        };
+    }
+
+    water() {
+        return {
+            glasses: Number(this._get('water', 'GlassesToday', 0)),
+            goal: Number(this._get('water', 'Goal', 8)),
+        };
+    }
+
+    // Fetch todos asynchronously; cb receives [[id, text, done, remind], ...].
+    getTodos(cb) {
+        this._callRet('todo', 'GetItems', null, ret => {
+            const items = ret.deepUnpack()[0].map(([id, text, done, remind]) => [
+                Number(id),
+                text,
+                done,
+                Number(remind),
+            ]);
+            cb(items);
+        }, () => cb([]));
+    }
+
+    // Fetch shelf items asynchronously; cb receives [[id, path, epoch], ...].
+    getShelf(cb) {
+        this._callRet('shelf', 'GetItems', null, ret => {
+            const items = ret.deepUnpack()[0].map(([id, path, epoch]) => [
+                Number(id),
+                path,
+                Number(epoch),
+            ]);
+            cb(items);
+        }, () => cb([]));
+    }
+
     // Fetch all lyric lines asynchronously; cb receives [[micros, text], ...].
     getLines(cb) {
         const proxy = this._proxies.lyrics;
@@ -195,6 +277,64 @@ export class MiraClient {
                 logError(e, `mira: ${method}`);
             }
         });
+    }
+
+    // Like _call but delivers the return value (or calls onErr).
+    _callRet(key, method, params, onOk, onErr) {
+        const proxy = this._proxies[key];
+        if (!proxy) {
+            onErr && onErr();
+            return;
+        }
+        proxy.call(method, params, Gio.DBusCallFlags.NONE, -1, null, (p, res) => {
+            try {
+                onOk(p.call_finish(res));
+            } catch (e) {
+                logError(e, `mira: ${method}`);
+                onErr && onErr();
+            }
+        });
+    }
+
+    // Pomodoro
+    pomoToggle() {
+        this._call('pomodoro', 'Toggle');
+    }
+    pomoReset() {
+        this._call('pomodoro', 'Reset');
+    }
+    pomoSkip() {
+        this._call('pomodoro', 'Skip');
+    }
+
+    // Water
+    waterAdd() {
+        this._call('water', 'Add');
+    }
+    waterRemove() {
+        this._call('water', 'Remove');
+    }
+
+    // Todo
+    todoAdd(text) {
+        this._call('todo', 'Add', new GLib.Variant('(s)', [text]));
+    }
+    todoToggle(id) {
+        this._call('todo', 'Toggle', new GLib.Variant('(x)', [id]));
+    }
+    todoRemove(id) {
+        this._call('todo', 'Remove', new GLib.Variant('(x)', [id]));
+    }
+    todoSetReminder(id, epoch) {
+        this._call('todo', 'SetReminder', new GLib.Variant('(xx)', [id, epoch]));
+    }
+
+    // Shelf
+    shelfAdd(path) {
+        this._call('shelf', 'Add', new GLib.Variant('(s)', [path]));
+    }
+    shelfRemove(id) {
+        this._call('shelf', 'Remove', new GLib.Variant('(x)', [id]));
     }
 
     playPause() {

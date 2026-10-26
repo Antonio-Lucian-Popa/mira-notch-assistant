@@ -119,8 +119,13 @@ lyrics, battery/charger alerts, fullscreen hide, tray + autostart) → Linux dae
 (MPRIS + UPower over D-Bus) → GNOME extension (integrated & floating modes) →
 minimal settings → packaging (per-user Windows installer, `.deb`).
 
-**Phase 2 (after sign-off):** Pomodoro, water, todos + reminders, shelf, Wi-Fi,
-headphones, volume/brightness/Caps-Lock/keyboard-language overlays, the mascot.
+**Phase 2 (Linux done):** Focus/Pomodoro timer, water counter, to-dos with
+reminders, and a file shelf — all wired through the daemon (D-Bus interfaces
+`Pomodoro`/`Water`/`Todo`/`Shelf`, SQLite persistence) and the GNOME extension,
+plus the always-on blinking mascot. Add files to the shelf with `mira-add
+<file>` (Wayland can't drop files onto shell chrome). Still to come: Wi-Fi,
+headphones, and the volume/brightness/Caps-Lock/keyboard-language overlays, and
+the Windows host for all of it.
 
 ## License
 

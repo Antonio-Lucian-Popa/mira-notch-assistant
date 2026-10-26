@@ -11,13 +11,6 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const PAGES = ['music', 'lyrics', 'focus', 'water', 'shelf', 'todo'];
-const PAGE_LABELS = {
-    focus: 'Focus',
-    water: 'Apă · Water',
-    shelf: 'Raft · Shelf',
-    todo: 'To-do',
-};
-
 export const Notch = GObject.registerClass(
 class Notch extends St.Bin {
     _init(client, tokens, settings) {
@@ -125,7 +118,10 @@ class Notch extends St.Bin {
 
         this._buildMusicPage();
         this._buildLyricsPage();
-        this._buildPlaceholderPages();
+        this._buildFocusPage();
+        this._buildWaterPage();
+        this._buildShelfPage();
+        this._buildTodoPage();
         this._showPageActor(0);
     }
 
@@ -215,15 +211,184 @@ class Notch extends St.Bin {
         this._pageArea.add_child(page);
     }
 
-    _buildPlaceholderPages() {
-        this._placeholders = {};
-        for (const name of ['focus', 'water', 'shelf', 'todo']) {
-            const page = new St.BoxLayout({style_class: 'mira-page mira-page-soon', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER, x_expand: true, y_expand: true});
-            const label = new St.Label({style_class: 'mira-soon', text: `${PAGE_LABELS[name]}`});
-            page.add_child(label);
-            this._placeholders[name] = page;
-            this._pageArea.add_child(page);
-        }
+    // --- Focus (Pomodoro) page ---
+    _buildFocusPage() {
+        const page = new St.BoxLayout({
+            vertical: true,
+            style_class: 'mira-page mira-page-focus',
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+            x_expand: true,
+            y_expand: true,
+        });
+        this._focusPhase = new St.Label({style_class: 'mira-focus-phase', x_align: Clutter.ActorAlign.CENTER});
+        this._focusTime = new St.Label({style_class: 'mira-focus-time', x_align: Clutter.ActorAlign.CENTER});
+        const controls = new St.BoxLayout({style_class: 'mira-controls', x_align: Clutter.ActorAlign.CENTER});
+        this._focusToggle = this._iconButton('media-playback-start-symbolic', () => this._client.pomoToggle());
+        const reset = this._iconButton('view-refresh-symbolic', () => this._client.pomoReset());
+        const skip = this._iconButton('media-skip-forward-symbolic', () => this._client.pomoSkip());
+        controls.add_child(this._focusToggle);
+        controls.add_child(reset);
+        controls.add_child(skip);
+        page.add_child(this._focusPhase);
+        page.add_child(this._focusTime);
+        page.add_child(controls);
+        this._focusPage = page;
+        this._pageArea.add_child(page);
+    }
+
+    // --- Water page ---
+    _buildWaterPage() {
+        const page = new St.BoxLayout({
+            vertical: true,
+            style_class: 'mira-page mira-page-water',
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+            x_expand: true,
+            y_expand: true,
+        });
+        this._waterLabel = new St.Label({style_class: 'mira-water-label', x_align: Clutter.ActorAlign.CENTER});
+        const controls = new St.BoxLayout({style_class: 'mira-controls', x_align: Clutter.ActorAlign.CENTER});
+        const minus = this._iconButton('list-remove-symbolic', () => this._client.waterRemove());
+        const plus = this._iconButton('list-add-symbolic', () => this._client.waterAdd());
+        controls.add_child(minus);
+        controls.add_child(plus);
+        page.add_child(this._waterLabel);
+        page.add_child(controls);
+        this._waterPage = page;
+        this._pageArea.add_child(page);
+    }
+
+    // --- Todo page ---
+    _buildTodoPage() {
+        const page = new St.BoxLayout({
+            vertical: true,
+            style_class: 'mira-page mira-page-todo',
+            x_expand: true,
+            y_expand: true,
+        });
+        this._todoEntry = new St.Entry({
+            style_class: 'mira-todo-entry',
+            hint_text: 'Adaugă… / Add…',
+            can_focus: true,
+            x_expand: true,
+        });
+        this._todoEntry.clutter_text.connect('activate', () => {
+            const text = this._todoEntry.get_text().trim();
+            if (text) {
+                this._client.todoAdd(text);
+                this._todoEntry.set_text('');
+            }
+        });
+        this._todoList = new St.BoxLayout({vertical: true, style_class: 'mira-list', x_expand: true});
+        page.add_child(this._todoEntry);
+        page.add_child(this._todoList);
+        this._todoPage = page;
+        this._pageArea.add_child(page);
+    }
+
+    // --- Shelf page ---
+    _buildShelfPage() {
+        const page = new St.BoxLayout({
+            vertical: true,
+            style_class: 'mira-page mira-page-shelf',
+            x_expand: true,
+            y_expand: true,
+        });
+        this._shelfHint = new St.Label({
+            style_class: 'mira-shelf-hint',
+            text: 'Trimite în Mira (clic-dreapta în fișiere) · mira-add <fișier>',
+        });
+        this._shelfList = new St.BoxLayout({vertical: true, style_class: 'mira-list', x_expand: true});
+        page.add_child(this._shelfHint);
+        page.add_child(this._shelfList);
+        this._shelfPage = page;
+        this._pageArea.add_child(page);
+    }
+
+    _smallButton(icon, onClick) {
+        const btn = new St.Button({style_class: 'mira-ctl-btn', can_focus: true});
+        btn.set_child(new St.Icon({icon_name: icon, icon_size: 12}));
+        btn.connect('clicked', onClick);
+        return btn;
+    }
+
+    _fmtTime(secs) {
+        secs = Math.max(0, secs | 0);
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    // --- page refreshers (called on navigation and on daemon events) ---
+    refreshPomodoro() {
+        if (!this._focusPhase)
+            return;
+        const p = this._client.pomodoro();
+        const names = {work: 'Focus', short_break: 'Pauză scurtă', long_break: 'Pauză lungă'};
+        this._focusPhase.text = names[p.phase] ?? 'Focus';
+        this._focusTime.text = this._fmtTime(p.remaining);
+        this._focusToggle.get_child().icon_name = p.running
+            ? 'media-playback-pause-symbolic'
+            : 'media-playback-start-symbolic';
+    }
+
+    refreshWater() {
+        if (!this._waterLabel)
+            return;
+        const w = this._client.water();
+        this._waterLabel.text = `💧 ${w.glasses} / ${w.goal}`;
+    }
+
+    refreshTodo() {
+        if (!this._todoList)
+            return;
+        this._client.getTodos(items => {
+            this._todoList.destroy_all_children();
+            for (const [id, text, done, remind] of items.slice(0, 6)) {
+                const row = new St.BoxLayout({style_class: 'mira-row', x_expand: true});
+                const check = new St.Button({style_class: 'mira-check'});
+                check.set_child(new St.Label({text: done ? '✔' : '◻'}));
+                check.connect('clicked', () => this._client.todoToggle(id));
+                const label = new St.Label({
+                    text,
+                    x_expand: true,
+                    style_class: done ? 'mira-todo-done' : 'mira-todo-text',
+                });
+                const bell = this._smallButton(
+                    remind > 0 ? 'alarm-symbolic' : 'alarm-symbolic',
+                    () => this._client.todoSetReminder(id, Math.floor(Date.now() / 1000) + 3600)
+                );
+                if (remind > 0)
+                    bell.add_style_class_name('active');
+                const del = this._smallButton('user-trash-symbolic', () => this._client.todoRemove(id));
+                row.add_child(check);
+                row.add_child(label);
+                row.add_child(bell);
+                row.add_child(del);
+                this._todoList.add_child(row);
+            }
+        });
+    }
+
+    refreshShelf() {
+        if (!this._shelfList)
+            return;
+        this._client.getShelf(items => {
+            this._shelfList.destroy_all_children();
+            for (const [id, path] of items.slice(0, 6)) {
+                const row = new St.BoxLayout({style_class: 'mira-row', x_expand: true});
+                const name = new St.Label({
+                    text: path.split('/').pop(),
+                    x_expand: true,
+                    style_class: 'mira-shelf-name',
+                });
+                const del = this._smallButton('user-trash-symbolic', () => this._client.shelfRemove(id));
+                row.add_child(name);
+                row.add_child(del);
+                this._shelfList.add_child(row);
+            }
+        });
     }
 
     _iconButton(icon, onClick) {
@@ -336,16 +501,38 @@ class Notch extends St.Bin {
         this._dotActors.forEach((d, idx) =>
             idx === this._page ? d.add_style_class_name('active') : d.remove_style_class_name('active')
         );
-        if (PAGES[this._page] === 'lyrics')
-            this._refreshLyrics();
+        this._refreshPage(PAGES[this._page]);
     }
 
     _showPageActor(i) {
         const name = PAGES[i];
         this._musicPage.visible = name === 'music';
         this._lyricsPage.visible = name === 'lyrics';
-        for (const [key, actor] of Object.entries(this._placeholders))
-            actor.visible = name === key;
+        this._focusPage.visible = name === 'focus';
+        this._waterPage.visible = name === 'water';
+        this._shelfPage.visible = name === 'shelf';
+        this._todoPage.visible = name === 'todo';
+    }
+
+    // Load fresh data for the page we just switched to.
+    _refreshPage(name) {
+        switch (name) {
+        case 'lyrics':
+            this._refreshLyrics();
+            break;
+        case 'focus':
+            this.refreshPomodoro();
+            break;
+        case 'water':
+            this.refreshWater();
+            break;
+        case 'todo':
+            this.refreshTodo();
+            break;
+        case 'shelf':
+            this.refreshShelf();
+            break;
+        }
     }
 
     _onScroll(ev) {
@@ -458,10 +645,15 @@ class Notch extends St.Bin {
     }
 
     // --- alerts ---
-    showAlert(type, percentage) {
+    showAlert(type, arg) {
         const map = {
-            'charger-connected': ['battery-full-charging-symbolic', `⚡ ${Math.round(percentage)}%`],
-            'charger-disconnected': ['battery-symbolic', `🔋 ${Math.round(percentage)}%`],
+            'charger-connected': ['battery-full-charging-symbolic', `⚡ ${Math.round(arg)}%`],
+            'charger-disconnected': ['battery-symbolic', `🔋 ${Math.round(arg)}%`],
+            'reminder': ['alarm-symbolic', `⏰ ${arg}`],
+            'pomodoro-phase': [
+                'appointment-soon-symbolic',
+                arg === 'work' ? 'Focus!' : 'Pauză · Break',
+            ],
         };
         const [icon, text] = map[type] ?? ['dialog-information-symbolic', ''];
         this._alertIcon.icon_name = icon;

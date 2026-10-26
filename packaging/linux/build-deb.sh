@@ -34,6 +34,7 @@ mkdir -p \
     "$BUILD/usr/share/gnome-shell/extensions/$UUID"
 
 install -m 0755 "$REPO_ROOT/target/release/mira-daemon" "$BUILD/usr/bin/mira-daemon"
+install -m 0755 "$HERE/mira-add" "$BUILD/usr/bin/mira-add"
 install -m 0644 "$HERE/systemd/mira-daemon.service" "$BUILD/usr/lib/systemd/user/mira-daemon.service"
 install -m 0644 "$HERE/dbus/ro.novabytecode.Mira.service" "$BUILD/usr/share/dbus-1/services/ro.novabytecode.Mira.service"
 

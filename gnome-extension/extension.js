@@ -47,8 +47,12 @@ export default class MiraExtension extends Extension {
         this._client.connect('lyrics-changed', () => this._notch.onLyricsChanged());
         this._client.connect('lyrics-props-changed', () => this._notch.onLyricsChanged());
         this._client.connect('active-line-changed', idx => this._notch.onActiveLine(idx));
-        this._client.connect('alert', (type, pct) => this._notch.showAlert(type, pct));
+        this._client.connect('alert', (type, arg) => this._notch.showAlert(type, arg));
         this._client.connect('availability-changed', () => this._notch.refreshMedia());
+        this._client.connect('pomodoro-changed', () => this._notch.refreshPomodoro());
+        this._client.connect('water-changed', () => this._notch.refreshWater());
+        this._client.connect('todo-changed', () => this._notch.refreshTodo());
+        this._client.connect('shelf-changed', () => this._notch.refreshShelf());
     }
 
     // Integrated mode hides the panel clock so the notch "replaces" it; floating

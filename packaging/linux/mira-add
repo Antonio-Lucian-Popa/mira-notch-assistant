@@ -1,0 +1,36 @@
+#!/bin/sh
+# Add one or more files to the Mira shelf (works on Wayland, unlike dragging
+# into the shell). Usage: mira-add FILE [FILE...]
+#
+# Hook it up as a Nautilus/Files right-click action by symlinking it into
+#   ~/.local/share/nautilus/scripts/
+# then it appears under Scripts in the context menu as "mira-add".
+
+set -eu
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: mira-add FILE [FILE...]" >&2
+    exit 2
+fi
+
+# Nautilus scripts pass selected paths in $NAUTILUS_SCRIPT_SELECTED_FILE_PATHS.
+if [ -n "${NAUTILUS_SCRIPT_SELECTED_FILE_PATHS:-}" ]; then
+    set --
+    OLDIFS=$IFS
+    IFS='
+'
+    for p in $NAUTILUS_SCRIPT_SELECTED_FILE_PATHS; do
+        [ -n "$p" ] && set -- "$@" "$p"
+    done
+    IFS=$OLDIFS
+fi
+
+for f in "$@"; do
+    abs=$(readlink -f "$f")
+    gdbus call --session \
+        --dest ro.novabytecode.Mira \
+        --object-path /ro/novabytecode/Mira \
+        --method ro.novabytecode.Mira.Shelf.Add "$abs" >/dev/null \
+        && echo "Added to Mira shelf: $abs" \
+        || echo "Failed (is the Mira daemon running?): $abs" >&2
+done
