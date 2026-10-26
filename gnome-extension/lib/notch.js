@@ -40,6 +40,7 @@ class Notch extends St.Bin {
         this._activeLine = -1;
         this._lines = [];
         this._hasTrack = false;
+        this._playing = false;
         this._closeTimer = 0;
         this._alertTimer = 0;
         this._clockTimer = 0;
@@ -384,8 +385,11 @@ class Notch extends St.Bin {
         this._btnPrev.reactive = m.canGoPrevious;
 
         this._hasTrack = hasTrack;
-        // Music appearing counts as activity: wake the mascot and show the viz.
-        if (hasTrack)
+        this._playing = playing;
+        // Actively playing music counts as activity: keep the mascot away.
+        // A merely *paused* track (browsers keep an MPRIS session around) must
+        // not block resting, so we gate on `playing`, not `hasTrack`.
+        if (playing)
             this._resetIdle();
         this._updateClosedVisual();
         if (playing)
@@ -398,7 +402,8 @@ class Notch extends St.Bin {
     _updateClosedVisual() {
         const minimal = this._settings.get_boolean('minimal');
         const showEyes = this._mascotActive && !minimal;
-        const showViz = !showEyes && this._hasTrack && !minimal;
+        // Visualizer only while actually playing, not for a paused track.
+        const showViz = !showEyes && this._playing && !minimal;
         this._eyes.visible = showEyes;
         this._viz.visible = showViz;
         this._clock.visible = !showEyes && !showViz;
@@ -569,7 +574,7 @@ class Notch extends St.Bin {
     _enterMascot() {
         if (!this._settings.get_boolean('mascot'))
             return;
-        if (this._open || this._hasTrack || this._settings.get_boolean('minimal'))
+        if (this._open || this._playing || this._settings.get_boolean('minimal'))
             return;
         this._mascotActive = true;
         this._wakeEyes();
