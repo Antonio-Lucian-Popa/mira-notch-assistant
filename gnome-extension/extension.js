@@ -34,6 +34,8 @@ export default class MiraExtension extends Extension {
         this._settingsChangedId = this._settings.connect('changed', (_s, key) => {
             if (key === 'mode')
                 this._applyMode();
+            else if (key === 'greeting-preview')
+                this._notch.showGreeting();
             else
                 this._notch.applySettings();
         });

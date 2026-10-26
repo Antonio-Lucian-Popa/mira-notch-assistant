@@ -1,16 +1,61 @@
 // The notch widget: a centered top pill that expands on hover and shows the
-// music and lyrics pages. Geometry and animation timings come from design
-// tokens so it matches the Windows notch. All state is pushed in from the
-// daemon via MiraClient; this file only draws and animates.
+// music, lyrics, focus, water, shelf and to-do pages. Geometry and animation
+// timings come from design tokens so it matches the Windows notch. All state is
+// pushed in from the daemon via MiraClient; this file only draws and animates.
+//
+// The open view is built around a persistent header (status ring + date + time
+// + visualizer) with left/right nav arrows flanking the page area, matching the
+// Mira design mockups. The closed view is the mascot eyes (or clock / mini
+// music). The eyes have a library of personality animations and a scheduled
+// daily greeting ("Bună dimineața, Antonio").
 
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
+import cairo from 'gi://cairo';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const PAGES = ['music', 'lyrics', 'focus', 'water', 'shelf', 'todo'];
+
+// Titles shown at the left of the header per page. Music has none (its header
+// is just date/time). Two-tone titles use Pango markup.
+const PAGE_TITLES = {
+    music: '',
+    lyrics: 'Lyrics',
+    focus: 'Pomodoro',
+    water: 'Water <span foreground="#3B9CFF">Reminder</span>',
+    shelf: 'Shelf',
+    todo: 'Todo<span foreground="#2EE67A">List</span>',
+};
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const ML_PER_GLASS = 250;
+
+// --- cairo helpers ----------------------------------------------------------
+function roundRect(cr, x, y, w, h, r) {
+    r = Math.min(r, h / 2, w / 2);
+    cr.newSubPath();
+    cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+    cr.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+    cr.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+    cr.arc(x + r, y + r, r, Math.PI, 1.5 * Math.PI);
+    cr.closePath();
+}
+
+function hex(c) {
+    // "#rrggbb" or "#rrggbbaa" -> [r,g,b,a] in 0..1
+    let s = c.replace('#', '');
+    if (s.length === 6)
+        s += 'ff';
+    const n = parseInt(s, 16);
+    return [((n >> 24) & 255) / 255, ((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
 export const Notch = GObject.registerClass(
 class Notch extends St.Bin {
     _init(client, tokens, settings) {
@@ -38,9 +83,16 @@ class Notch extends St.Bin {
         this._alertTimer = 0;
         this._clockTimer = 0;
         this._vizTimer = 0;
-        // Mascot (always-on resting eyes), toggled by the `mascot` setting.
-        this._blinkTimer = 0;
-        this._glanceTimer = 0;
+        this._headerVizTimer = 0;
+        this._progressTimer = 0;
+        this._greetTimer = 0;
+        this._artToken = 0;
+        this._media = {};
+        this._todoEntryVisible = false;
+
+        // Mascot eyes.
+        this._eyeLifeTimer = 0;
+        this._greetSeqTimers = [];
 
         this._buildContent();
         this._computeSizes();
@@ -55,6 +107,7 @@ class Notch extends St.Bin {
         this._startClock();
         this._refreshMedia();
         this._armIdle();
+        this._scheduleGreeting();
     }
 
     // --- layout construction ---
@@ -66,7 +119,7 @@ class Notch extends St.Bin {
         });
         this.set_child(this._stack);
 
-        // Closed view: clock, or mini music (art dot + visualizer).
+        // Closed view: clock, or mini music (art dot + visualizer), or eyes.
         this._closedBox = new St.BoxLayout({
             style_class: 'mira-closed',
             x_align: Clutter.ActorAlign.CENTER,
@@ -75,7 +128,7 @@ class Notch extends St.Bin {
             y_expand: true,
         });
         this._clock = new St.Label({style_class: 'mira-clock', y_align: Clutter.ActorAlign.CENTER});
-        this._viz = this._buildVisualizer();
+        this._viz = this._buildVisualizer('mira-viz', 5);
         this._eyes = this._buildEyes();
         this._closedBox.add_child(this._clock);
         this._closedBox.add_child(this._viz);
@@ -83,24 +136,33 @@ class Notch extends St.Bin {
         this._viz.hide();
         this._eyes.hide();
 
-        // Open view: a page area plus a dots row.
+        // Open view: header, body (arrows + page area), dots.
         this._openBox = new St.BoxLayout({
             vertical: true,
             style_class: 'mira-open',
             x_expand: true,
             y_expand: true,
         });
+        this._buildHeader();
+        const body = new St.BoxLayout({style_class: 'mira-body', y_expand: true, x_expand: true});
+        this._navLeft = new St.Button({style_class: 'mira-nav', child: new St.Label({text: '‹', style_class: 'mira-nav-glyph'})});
+        this._navRight = new St.Button({style_class: 'mira-nav', child: new St.Label({text: '›', style_class: 'mira-nav-glyph'})});
+        this._navLeft.connect('clicked', () => this.setPage(this._page - 1));
+        this._navRight.connect('clicked', () => this.setPage(this._page + 1));
         this._pageArea = new St.Widget({
             layout_manager: new Clutter.BinLayout(),
             x_expand: true,
             y_expand: true,
         });
-        this._dots = new St.BoxLayout({
-            style_class: 'mira-dots',
-            x_align: Clutter.ActorAlign.CENTER,
-        });
+        body.add_child(this._navLeft);
+        body.add_child(this._pageArea);
+        body.add_child(this._navRight);
+
+        this._dots = new St.BoxLayout({style_class: 'mira-dots', x_align: Clutter.ActorAlign.CENTER});
         this._buildDots();
-        this._openBox.add_child(this._pageArea);
+
+        this._openBox.add_child(this._header);
+        this._openBox.add_child(body);
         this._openBox.add_child(this._dots);
         this._openBox.hide();
 
@@ -112,9 +174,18 @@ class Notch extends St.Bin {
         this._alertBox.add_child(this._alertLabel);
         this._alertBox.hide();
 
+        // Greeting view: mascot eyes + a personal message.
+        this._greetBox = new St.BoxLayout({style_class: 'mira-greet', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER});
+        this._greetEyes = this._buildEyes('mira-greet-eyes');
+        this._greetLabel = new St.Label({style_class: 'mira-greet-label', y_align: Clutter.ActorAlign.CENTER});
+        this._greetBox.add_child(this._greetEyes);
+        this._greetBox.add_child(this._greetLabel);
+        this._greetBox.hide();
+
         this._stack.add_child(this._closedBox);
         this._stack.add_child(this._openBox);
         this._stack.add_child(this._alertBox);
+        this._stack.add_child(this._greetBox);
 
         this._buildMusicPage();
         this._buildLyricsPage();
@@ -122,34 +193,76 @@ class Notch extends St.Bin {
         this._buildWaterPage();
         this._buildShelfPage();
         this._buildTodoPage();
-        this._showPageActor(0);
+        this.setPage(0);
     }
 
-    _buildVisualizer() {
-        const box = new St.BoxLayout({style_class: 'mira-viz', y_align: Clutter.ActorAlign.CENTER});
-        this._vizBars = [];
-        const n = this._tokens.visualizer?.bars ?? 5;
+    _buildHeader() {
+        this._header = new St.BoxLayout({style_class: 'mira-header', x_expand: true});
+        this._pageTitle = new St.Label({style_class: 'mira-page-title', y_align: Clutter.ActorAlign.CENTER});
+        this._pageTitle.clutter_text.use_markup = true;
+
+        // The green "live" ring: a small day-progress arc.
+        this._ring = new St.DrawingArea({style_class: 'mira-ring'});
+        this._ring.set_size(16, 16);
+        this._ring.connect('repaint', () => this._drawRing());
+
+        this._date = new St.Label({style_class: 'mira-date', y_align: Clutter.ActorAlign.CENTER});
+        this._time = new St.Label({style_class: 'mira-time', y_align: Clutter.ActorAlign.CENTER});
+        const spacer = new St.Widget({x_expand: true});
+        this._headerViz = this._buildVisualizer('mira-header-viz', 4);
+
+        this._header.add_child(this._pageTitle);
+        this._header.add_child(this._ring);
+        this._header.add_child(this._date);
+        this._header.add_child(this._time);
+        this._header.add_child(spacer);
+        this._header.add_child(this._headerViz);
+    }
+
+    _drawRing() {
+        const cr = this._ring.get_context();
+        const [w, h] = this._ring.get_surface_size();
+        const cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 2;
+        const now = GLib.DateTime.new_now_local();
+        const frac = (now.get_hour() * 3600 + now.get_minute() * 60 + now.get_second()) / 86400;
+        cr.setLineWidth(2.2);
+        cr.setSourceRGBA(0.18, 0.9, 0.65, 0.25);
+        cr.arc(cx, cy, r, 0, 2 * Math.PI);
+        cr.stroke();
+        cr.setSourceRGBA(...hex(this._tokens.colors.ring ?? '#2EE6A6'));
+        cr.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + frac * 2 * Math.PI);
+        cr.stroke();
+        cr.$dispose();
+    }
+
+    _buildVisualizer(klass, n) {
+        const box = new St.BoxLayout({style_class: klass, y_align: Clutter.ActorAlign.CENTER});
+        box._bars = [];
         for (let i = 0; i < n; i++) {
-            const bar = new St.Widget({style_class: 'mira-viz-bar'});
+            const bar = new St.Widget({style_class: `${klass}-bar`});
             bar.set_size(3, this._tokens.visualizer?.minHeight ?? 3);
-            this._vizBars.push(bar);
+            box._bars.push(bar);
             box.add_child(bar);
         }
         return box;
     }
 
-    _buildEyes() {
+    _buildEyes(klass = 'mira-eyes') {
         const box = new St.BoxLayout({
-            style_class: 'mira-eyes',
+            style_class: klass,
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._eyeActors = [];
-        this._eyeH = 9;
+        box._eyes = [];
+        const eyeH = klass === 'mira-greet-eyes' ? 11 : 9;
+        const eyeW = eyeH;
         for (let i = 0; i < 2; i++) {
-            const eye = new St.Widget({style_class: 'mira-eye'});
-            eye.set_size(9, this._eyeH);
-            this._eyeActors.push(eye);
+            const eye = new St.Widget({style_class: klass === 'mira-greet-eyes' ? 'mira-eye mira-eye-big' : 'mira-eye'});
+            eye.set_pivot_point(0.5, 0.5);
+            eye.set_size(eyeW, eyeH);
+            eye._baseH = eyeH;
+            eye._baseW = eyeW;
+            box._eyes.push(eye);
             box.add_child(eye);
         }
         return box;
@@ -165,25 +278,56 @@ class Notch extends St.Bin {
         }
     }
 
+    // --- Music page ---
     _buildMusicPage() {
-        const page = new St.BoxLayout({style_class: 'mira-page mira-page-music', x_expand: true});
-        this._art = new St.Bin({style_class: 'mira-art'});
-        const info = new St.BoxLayout({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
-        this._title = new St.Label({style_class: 'mira-title'});
+        const page = new St.BoxLayout({vertical: true, style_class: 'mira-page mira-page-music', x_expand: true, y_expand: true});
+
+        const top = new St.BoxLayout({style_class: 'mira-music-top', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+        this._art = new St.Bin({style_class: 'mira-art mira-art-empty'});
+        this._artIcon = new St.Icon({icon_name: 'audio-x-generic-symbolic', icon_size: 30, style_class: 'mira-art-icon'});
+        this._art.set_child(this._artIcon);
+        const info = new St.BoxLayout({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER, style_class: 'mira-music-info'});
+        this._title = new St.Label({style_class: 'mira-title', text: '—'});
         this._artist = new St.Label({style_class: 'mira-artist'});
+        this._title.clutter_text.ellipsize = 3; // END
+        this._artist.clutter_text.ellipsize = 3;
         info.add_child(this._title);
         info.add_child(this._artist);
+        this._btnExpand = new St.Button({style_class: 'mira-round-btn', child: new St.Label({text: '›', style_class: 'mira-round-glyph'})});
+        this._btnExpand.connect('clicked', () => this.setPage(PAGES.indexOf('lyrics')));
+        top.add_child(this._art);
+        top.add_child(info);
+        top.add_child(this._btnExpand);
 
-        const controls = new St.BoxLayout({style_class: 'mira-controls', y_align: Clutter.ActorAlign.CENTER});
+        // Progress row.
+        const prog = new St.BoxLayout({style_class: 'mira-prog-row', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+        this._posLabel = new St.Label({style_class: 'mira-time-small', text: '0:00', y_align: Clutter.ActorAlign.CENTER});
+        this._progBar = this._makeBar(this._tokens.colors.text ?? '#F2F2F3');
+        this._remLabel = new St.Label({style_class: 'mira-time-small', text: '0:00', y_align: Clutter.ActorAlign.CENTER});
+        prog.add_child(this._posLabel);
+        prog.add_child(this._progBar.actor);
+        prog.add_child(this._remLabel);
+
+        // Controls row.
+        const controls = new St.BoxLayout({style_class: 'mira-music-controls', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+        this._btnLyrics = new St.Button({style_class: 'mira-ghost-btn', child: new St.Icon({icon_name: 'user-available-symbolic', icon_size: 16})});
+        this._btnLyrics.connect('clicked', () => this.setPage(PAGES.indexOf('lyrics')));
+        const spacerL = new St.Widget({x_expand: true});
+        const spacerR = new St.Widget({x_expand: true});
+        const transport = new St.BoxLayout({style_class: 'mira-controls', y_align: Clutter.ActorAlign.CENTER});
         this._btnPrev = this._iconButton('media-skip-backward-symbolic', () => this._client.previous());
-        this._btnPlay = this._iconButton('media-playback-start-symbolic', () => this._client.playPause());
+        this._btnPlay = this._iconButton('media-playback-start-symbolic', () => this._client.playPause(), 'mira-ctl-btn mira-ctl-play');
         this._btnNext = this._iconButton('media-skip-forward-symbolic', () => this._client.next());
-        controls.add_child(this._btnPrev);
-        controls.add_child(this._btnPlay);
-        controls.add_child(this._btnNext);
+        transport.add_child(this._btnPrev);
+        transport.add_child(this._btnPlay);
+        transport.add_child(this._btnNext);
+        controls.add_child(this._btnLyrics);
+        controls.add_child(spacerL);
+        controls.add_child(transport);
+        controls.add_child(spacerR);
 
-        page.add_child(this._art);
-        page.add_child(info);
+        page.add_child(top);
+        page.add_child(prog);
         page.add_child(controls);
         this._musicPage = page;
         this._pageArea.add_child(page);
@@ -195,8 +339,8 @@ class Notch extends St.Bin {
             style_class: 'mira-page mira-page-lyrics',
             x_expand: true,
             y_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
         });
-        // Three rolling lines: previous, current, next.
         this._lyricLabels = [];
         for (let i = 0; i < 3; i++) {
             const btn = new St.Button({style_class: 'mira-lyric-line', x_align: Clutter.ActorAlign.CENTER});
@@ -214,65 +358,186 @@ class Notch extends St.Bin {
     // --- Focus (Pomodoro) page ---
     _buildFocusPage() {
         const page = new St.BoxLayout({
-            vertical: true,
             style_class: 'mira-page mira-page-focus',
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
             x_expand: true,
             y_expand: true,
         });
-        this._focusPhase = new St.Label({style_class: 'mira-focus-phase', x_align: Clutter.ActorAlign.CENTER});
+
+        // Left: big ring with the timer icon.
+        this._focusRing = new St.DrawingArea({style_class: 'mira-focus-ring'});
+        this._focusRing.set_size(74, 74);
+        this._focusRing._frac = 0;
+        this._focusRing.connect('repaint', () => this._drawFocusRing());
+        const ringBin = new St.Bin({child: new St.Icon({icon_name: 'alarm-symbolic', icon_size: 26, style_class: 'mira-focus-ring-icon'}), style_class: 'mira-focus-ring-wrap'});
+        const ringStack = new St.Widget({layout_manager: new Clutter.BinLayout()});
+        ringStack.add_child(this._focusRing);
+        ringStack.add_child(ringBin);
+
+        // Right column: time, phase, pill controls.
+        const right = new St.BoxLayout({vertical: true, style_class: 'mira-focus-right', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER});
         this._focusTime = new St.Label({style_class: 'mira-focus-time', x_align: Clutter.ActorAlign.CENTER});
-        const controls = new St.BoxLayout({style_class: 'mira-controls', x_align: Clutter.ActorAlign.CENTER});
-        this._focusToggle = this._iconButton('media-playback-start-symbolic', () => this._client.pomoToggle());
-        const reset = this._iconButton('view-refresh-symbolic', () => this._client.pomoReset());
-        const skip = this._iconButton('media-skip-forward-symbolic', () => this._client.pomoSkip());
-        controls.add_child(this._focusToggle);
-        controls.add_child(reset);
-        controls.add_child(skip);
-        page.add_child(this._focusPhase);
-        page.add_child(this._focusTime);
-        page.add_child(controls);
+        this._focusPhase = new St.Label({style_class: 'mira-focus-phase', x_align: Clutter.ActorAlign.CENTER});
+        const pills = new St.BoxLayout({style_class: 'mira-focus-pills', x_align: Clutter.ActorAlign.CENTER});
+        const shortBreak = this._pillButton('cafe-symbolic', 'Short Break', () => this._client.pomoSkip());
+        this._focusToggle = new St.Button({style_class: 'mira-pill mira-pill-accent', child: new St.Icon({icon_name: 'media-playback-start-symbolic', icon_size: 16})});
+        this._focusToggle.connect('clicked', () => this._client.pomoToggle());
+        const focusTime = this._pillButton('preferences-system-time-symbolic', 'Focus Time', () => this._client.pomoReset());
+        pills.add_child(shortBreak);
+        pills.add_child(this._focusToggle);
+        pills.add_child(focusTime);
+        right.add_child(this._focusTime);
+        right.add_child(this._focusPhase);
+        right.add_child(pills);
+
+        page.add_child(ringStack);
+        page.add_child(right);
         this._focusPage = page;
         this._pageArea.add_child(page);
+    }
+
+    _drawFocusRing() {
+        const cr = this._focusRing.get_context();
+        const [w, h] = this._focusRing.get_surface_size();
+        const cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 5;
+        const col = this._tokens.colors.focus ?? '#FF5A5A';
+        cr.setLineWidth(5);
+        cr.setSourceRGBA(...hex(col).slice(0, 3), 0.22);
+        cr.arc(cx, cy, r, 0, 2 * Math.PI);
+        cr.stroke();
+        const frac = this._focusRing._frac ?? 0;
+        cr.setSourceRGBA(...hex(col));
+        cr.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.max(0.001, frac) * 2 * Math.PI);
+        cr.stroke();
+        cr.$dispose();
     }
 
     // --- Water page ---
     _buildWaterPage() {
         const page = new St.BoxLayout({
-            vertical: true,
             style_class: 'mira-page mira-page-water',
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.CENTER,
             x_expand: true,
             y_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
         });
-        this._waterLabel = new St.Label({style_class: 'mira-water-label', x_align: Clutter.ActorAlign.CENTER});
-        const controls = new St.BoxLayout({style_class: 'mira-controls', x_align: Clutter.ActorAlign.CENTER});
-        const minus = this._iconButton('list-remove-symbolic', () => this._client.waterRemove());
-        const plus = this._iconButton('list-add-symbolic', () => this._client.waterAdd());
-        controls.add_child(minus);
-        controls.add_child(plus);
-        page.add_child(this._waterLabel);
-        page.add_child(controls);
+
+        const left = new St.BoxLayout({vertical: true, style_class: 'mira-water-left', y_align: Clutter.ActorAlign.CENTER});
+        const amountRow = new St.BoxLayout({style_class: 'mira-water-amount-row', y_align: Clutter.ActorAlign.CENTER});
+        this._waterAmount = new St.Label({style_class: 'mira-water-amount'});
+        this._waterGoalLabel = new St.Label({style_class: 'mira-water-goal', y_align: Clutter.ActorAlign.END});
+        this._waterToggle = new St.Button({style_class: 'mira-toggle on', child: new St.Icon({icon_name: 'alarm-symbolic', icon_size: 12})});
+        this._waterToggle.connect('clicked', () => this._waterToggle.has_style_class_name('on') ? this._waterToggle.remove_style_class_name('on') : this._waterToggle.add_style_class_name('on'));
+        amountRow.add_child(this._waterAmount);
+        amountRow.add_child(this._waterGoalLabel);
+        const spc = new St.Widget({x_expand: true});
+        amountRow.add_child(spc);
+        amountRow.add_child(this._waterToggle);
+
+        this._waterStatus = new St.Label({style_class: 'mira-water-status'});
+        this._waterStatus.clutter_text.use_markup = true;
+        this._waterBar = this._makeBar(this._tokens.colors.water ?? '#3B9CFF', 6);
+
+        const btns = new St.BoxLayout({style_class: 'mira-water-btns'});
+        const drink = this._pillButton('water-drop-symbolic', 'Drink', () => {
+            this._client.waterAdd();
+            this._logWater(ML_PER_GLASS);
+            this.refreshWater();
+        }, 'mira-pill mira-pill-water');
+        const settings = this._pillButton('emblem-system-symbolic', 'Settings', () => this._client.waterRemove());
+        btns.add_child(drink);
+        btns.add_child(settings);
+
+        left.add_child(amountRow);
+        left.add_child(this._waterStatus);
+        left.add_child(this._waterBar.actor);
+        left.add_child(btns);
+
+        this._waterChart = new St.DrawingArea({style_class: 'mira-water-chart'});
+        this._waterChart.connect('repaint', () => this._drawWaterChart());
+
+        page.add_child(left);
+        page.add_child(this._waterChart);
         this._waterPage = page;
+        this._pageArea.add_child(page);
+    }
+
+    _drawWaterChart() {
+        const cr = this._waterChart.get_context();
+        const [w, h] = this._waterChart.get_surface_size();
+        const data = this._waterLog ?? this._readWaterLog();
+        const hours = [];
+        const nowH = GLib.DateTime.new_now_local().get_hour();
+        const start = Math.max(0, Math.min(nowH - 7, 16));
+        for (let i = 0; i < 8; i++)
+            hours.push(start + i);
+        const max = Math.max(500, ...hours.map(hh => data[hh] ?? 0));
+        const col = hex(this._tokens.colors.water ?? '#3B9CFF');
+        const dim = hex(this._tokens.colors.waterDim ?? '#1C4E86');
+        const padL = 4, padR = 30, padB = 16, padT = 6;
+        const plotW = w - padL - padR, plotH = h - padB - padT;
+        const bw = (plotW / hours.length) * 0.55;
+
+        // y-axis ticks (0, max/2, max)
+        cr.setSourceRGBA(0.6, 0.6, 0.64, 1);
+        cr.setFontSize(9);
+        const ticks = [0, Math.round(max / 2), Math.round(max)];
+        for (const t of ticks) {
+            const y = padT + plotH - (t / max) * plotH;
+            cr.moveTo(w - padR + 4, y + 3);
+            cr.showText(`${t}`);
+        }
+        cr.moveTo(w - padR + 20, padT + plotH + 11);
+        cr.showText('ml');
+
+        hours.forEach((hh, i) => {
+            const v = data[hh] ?? 0;
+            const x = padL + i * (plotW / hours.length) + (plotW / hours.length - bw) / 2;
+            const bh = Math.max(2, (v / max) * plotH);
+            const y = padT + plotH - bh;
+            cr.setSourceRGBA(...(v > 0 ? col : dim.slice(0, 3).concat(0.5)));
+            roundRect(cr, x, y, bw, bh, Math.min(3, bw / 2));
+            cr.fill();
+            if (hh % 3 === 0) {
+                cr.setSourceRGBA(0.6, 0.6, 0.64, 1);
+                cr.moveTo(x - 2, padT + plotH + 11);
+                cr.showText(`${String(hh).padStart(2, '0')}`);
+            }
+        });
+        cr.$dispose();
+    }
+
+    // --- Shelf page ---
+    _buildShelfPage() {
+        const page = new St.BoxLayout({
+            style_class: 'mira-page mira-page-shelf',
+            x_expand: true,
+            y_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._shelfScroll = new St.ScrollView({style_class: 'mira-shelf-scroll', x_expand: true, hscrollbar_policy: St.PolicyType.AUTOMATIC, vscrollbar_policy: St.PolicyType.NEVER});
+        this._shelfList = new St.BoxLayout({style_class: 'mira-shelf-list', y_align: Clutter.ActorAlign.CENTER});
+        this._shelfScroll.set_child(this._shelfList);
+        this._shelfEmpty = new St.Label({style_class: 'mira-shelf-empty', text: 'Gol · trimite cu  mira-add <fișier>', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER, x_expand: true});
+        page.add_child(this._shelfScroll);
+        page.add_child(this._shelfEmpty);
+        this._shelfPage = page;
         this._pageArea.add_child(page);
     }
 
     // --- Todo page ---
     _buildTodoPage() {
-        const page = new St.BoxLayout({
-            vertical: true,
-            style_class: 'mira-page mira-page-todo',
-            x_expand: true,
-            y_expand: true,
-        });
-        this._todoEntry = new St.Entry({
-            style_class: 'mira-todo-entry',
-            hint_text: 'Adaugă… / Add…',
-            can_focus: true,
-            x_expand: true,
-        });
+        const page = new St.BoxLayout({style_class: 'mira-page mira-page-todo', x_expand: true, y_expand: true, y_align: Clutter.ActorAlign.CENTER});
+
+        const left = new St.BoxLayout({vertical: true, style_class: 'mira-todo-left', y_align: Clutter.ActorAlign.CENTER});
+        this._todoCount = new St.Label({style_class: 'mira-todo-count', text: '0/0'});
+        this._todoSub = new St.Label({style_class: 'mira-todo-sub', text: 'Task Done Today'});
+        const todoBtns = new St.BoxLayout({style_class: 'mira-todo-btns'});
+        const add = this._pillButton('list-add-symbolic', 'Add Task', () => this._toggleTodoEntry(true));
+        const edit = this._pillButton('document-edit-symbolic', 'Edit Task', () => this._toggleTodoEntry());
+        todoBtns.add_child(add);
+        todoBtns.add_child(edit);
+        this._todoEntry = new St.Entry({style_class: 'mira-todo-entry', hint_text: 'Adaugă… / Add…', can_focus: true, x_expand: true});
         this._todoEntry.clutter_text.connect('activate', () => {
             const text = this._todoEntry.get_text().trim();
             if (text) {
@@ -280,30 +545,38 @@ class Notch extends St.Bin {
                 this._todoEntry.set_text('');
             }
         });
-        this._todoList = new St.BoxLayout({vertical: true, style_class: 'mira-list', x_expand: true});
-        page.add_child(this._todoEntry);
-        page.add_child(this._todoList);
+        this._todoEntry.hide();
+        left.add_child(this._todoCount);
+        left.add_child(this._todoSub);
+        left.add_child(todoBtns);
+        left.add_child(this._todoEntry);
+
+        this._todoScroll = new St.ScrollView({style_class: 'mira-todo-scroll', x_expand: true, hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
+        this._todoList = new St.BoxLayout({vertical: true, style_class: 'mira-todo-listbox', x_expand: true});
+        this._todoScroll.set_child(this._todoList);
+
+        page.add_child(left);
+        page.add_child(this._todoScroll);
         this._todoPage = page;
         this._pageArea.add_child(page);
     }
 
-    // --- Shelf page ---
-    _buildShelfPage() {
-        const page = new St.BoxLayout({
-            vertical: true,
-            style_class: 'mira-page mira-page-shelf',
-            x_expand: true,
-            y_expand: true,
-        });
-        this._shelfHint = new St.Label({
-            style_class: 'mira-shelf-hint',
-            text: 'Trimite în Mira (clic-dreapta în fișiere) · mira-add <fișier>',
-        });
-        this._shelfList = new St.BoxLayout({vertical: true, style_class: 'mira-list', x_expand: true});
-        page.add_child(this._shelfHint);
-        page.add_child(this._shelfList);
-        this._shelfPage = page;
-        this._pageArea.add_child(page);
+    _toggleTodoEntry(forceShow) {
+        const show = forceShow || !this._todoEntryVisible;
+        this._todoEntryVisible = show;
+        this._todoEntry.visible = show;
+        if (show) {
+            this.grab_key_focus();
+            this._todoEntry.grab_key_focus();
+        }
+    }
+
+    // --- reusable widgets ---
+    _iconButton(icon, onClick, klass = 'mira-ctl-btn') {
+        const btn = new St.Button({style_class: klass, can_focus: true});
+        btn.set_child(new St.Icon({icon_name: icon, icon_size: 16}));
+        btn.connect('clicked', onClick);
+        return btn;
     }
 
     _smallButton(icon, onClick) {
@@ -311,6 +584,49 @@ class Notch extends St.Bin {
         btn.set_child(new St.Icon({icon_name: icon, icon_size: 12}));
         btn.connect('clicked', onClick);
         return btn;
+    }
+
+    _pillButton(icon, text, onClick, klass = 'mira-pill') {
+        const btn = new St.Button({style_class: klass, can_focus: true});
+        const box = new St.BoxLayout({style_class: 'mira-pill-box', y_align: Clutter.ActorAlign.CENTER});
+        if (icon)
+            box.add_child(new St.Icon({icon_name: icon, icon_size: 13}));
+        box.add_child(new St.Label({text, y_align: Clutter.ActorAlign.CENTER}));
+        btn.set_child(box);
+        btn.connect('clicked', onClick);
+        return btn;
+    }
+
+    // A rounded progress bar backed by a DrawingArea. Returns {actor, set(frac)}.
+    _makeBar(accent, thickness = 4) {
+        const area = new St.DrawingArea({style_class: 'mira-bar', x_expand: true});
+        area.set_height(thickness + 2);
+        area._frac = 0;
+        area._accent = accent;
+        area._thick = thickness;
+        area.connect('repaint', () => {
+            const cr = area.get_context();
+            const [w, h] = area.get_surface_size();
+            const t = area._thick;
+            const y = (h - t) / 2;
+            cr.setSourceRGBA(1, 1, 1, 0.16);
+            roundRect(cr, 0, y, w, t, t / 2);
+            cr.fill();
+            const fw = Math.max(0, Math.min(1, area._frac)) * w;
+            if (fw > 0) {
+                cr.setSourceRGBA(...hex(area._accent));
+                roundRect(cr, 0, y, fw, t, t / 2);
+                cr.fill();
+            }
+            cr.$dispose();
+        });
+        return {
+            actor: area,
+            set(frac) {
+                area._frac = frac;
+                area.queue_repaint();
+            },
+        };
     }
 
     _fmtTime(secs) {
@@ -325,19 +641,33 @@ class Notch extends St.Bin {
         if (!this._focusPhase)
             return;
         const p = this._client.pomodoro();
-        const names = {work: 'Focus', short_break: 'Pauză scurtă', long_break: 'Pauză lungă'};
-        this._focusPhase.text = names[p.phase] ?? 'Focus';
+        const names = {work: 'Focus time', short_break: 'Short break', long_break: 'Long break'};
+        this._focusPhase.text = names[p.phase] ?? 'Focus time';
         this._focusTime.text = this._fmtTime(p.remaining);
+        const total = {work: 25 * 60, short_break: 5 * 60, long_break: 15 * 60}[p.phase] ?? 25 * 60;
+        this._focusRing._frac = 1 - p.remaining / total;
+        this._focusRing.queue_repaint();
         this._focusToggle.get_child().icon_name = p.running
             ? 'media-playback-pause-symbolic'
             : 'media-playback-start-symbolic';
     }
 
     refreshWater() {
-        if (!this._waterLabel)
+        if (!this._waterAmount)
             return;
         const w = this._client.water();
-        this._waterLabel.text = `💧 ${w.glasses} / ${w.goal}`;
+        const liters = (w.glasses * ML_PER_GLASS) / 1000;
+        const goalL = (w.goal * ML_PER_GLASS) / 1000;
+        const pct = goalL > 0 ? Math.min(100, Math.round((liters / goalL) * 100)) : 0;
+        this._waterAmount.text = `${liters.toFixed(1)}`;
+        this._waterGoalLabel.text = ` / ${goalL.toFixed(1)} L`;
+        const reached = pct >= 100;
+        this._waterStatus.clutter_text.set_markup(
+            `Today · <span foreground="#3B9CFF" weight="bold">${pct}%</span> · ${reached ? 'Goal reached' : 'Keep going'}`
+        );
+        this._waterBar.set(pct / 100);
+        if (this._waterChart.visible)
+            this._waterChart.queue_repaint();
     }
 
     refreshTodo() {
@@ -345,23 +675,19 @@ class Notch extends St.Bin {
             return;
         this._client.getTodos(items => {
             this._todoList.destroy_all_children();
-            for (const [id, text, done, remind] of items.slice(0, 6)) {
-                const row = new St.BoxLayout({style_class: 'mira-row', x_expand: true});
-                const check = new St.Button({style_class: 'mira-check'});
-                check.set_child(new St.Label({text: done ? '✔' : '◻'}));
+            const done = items.filter(i => i[2]).length;
+            this._todoCount.text = `${done}/${items.length}`;
+            for (const [id, text, isDone, remind] of items.slice(0, 12)) {
+                const row = new St.BoxLayout({style_class: isDone ? 'mira-trow done' : 'mira-trow', x_expand: true});
+                const check = new St.Button({style_class: isDone ? 'mira-tcheck on' : 'mira-tcheck'});
+                check.set_child(new St.Icon({icon_name: isDone ? 'emblem-ok-symbolic' : 'checkbox-symbolic', icon_size: 13}));
                 check.connect('clicked', () => this._client.todoToggle(id));
-                const label = new St.Label({
-                    text,
-                    x_expand: true,
-                    style_class: done ? 'mira-todo-done' : 'mira-todo-text',
-                });
-                const bell = this._smallButton(
-                    remind > 0 ? 'alarm-symbolic' : 'alarm-symbolic',
-                    () => this._client.todoSetReminder(id, Math.floor(Date.now() / 1000) + 3600)
-                );
+                const label = new St.Label({text, x_expand: true, y_align: Clutter.ActorAlign.CENTER, style_class: isDone ? 'mira-ttext done' : 'mira-ttext'});
+                label.clutter_text.ellipsize = 3;
+                const del = this._smallButton('window-close-symbolic', () => this._client.todoRemove(id));
+                const bell = this._smallButton('alarm-symbolic', () => this._client.todoSetReminder(id, Math.floor(Date.now() / 1000) + 3600));
                 if (remind > 0)
                     bell.add_style_class_name('active');
-                const del = this._smallButton('user-trash-symbolic', () => this._client.todoRemove(id));
                 row.add_child(check);
                 row.add_child(label);
                 row.add_child(bell);
@@ -376,26 +702,63 @@ class Notch extends St.Bin {
             return;
         this._client.getShelf(items => {
             this._shelfList.destroy_all_children();
-            for (const [id, path] of items.slice(0, 6)) {
-                const row = new St.BoxLayout({style_class: 'mira-row', x_expand: true});
-                const name = new St.Label({
-                    text: path.split('/').pop(),
-                    x_expand: true,
-                    style_class: 'mira-shelf-name',
-                });
-                const del = this._smallButton('user-trash-symbolic', () => this._client.shelfRemove(id));
-                row.add_child(name);
-                row.add_child(del);
-                this._shelfList.add_child(row);
+            const list = items.slice(0, 12);
+            this._shelfEmpty.visible = list.length === 0;
+            this._shelfScroll.visible = list.length > 0;
+            for (const [id, path] of list) {
+                const card = new St.BoxLayout({vertical: true, style_class: 'mira-shelf-card', x_align: Clutter.ActorAlign.CENTER});
+                const thumb = new St.Bin({style_class: 'mira-shelf-thumb'});
+                const gicon = this._fileIcon(path);
+                thumb.set_child(new St.Icon({gicon, icon_size: 34, style_class: 'mira-shelf-thumb-icon'}));
+                const name = new St.Label({text: this._basename(path), style_class: 'mira-shelf-cname'});
+                name.clutter_text.ellipsize = 3;
+                const size = new St.Label({text: this._fileSize(path), style_class: 'mira-shelf-csize'});
+                const del = new St.Button({style_class: 'mira-shelf-del', child: new St.Icon({icon_name: 'window-close-symbolic', icon_size: 11})});
+                del.connect('clicked', () => this._client.shelfRemove(id));
+                const thumbWrap = new St.Widget({layout_manager: new Clutter.BinLayout()});
+                thumbWrap.add_child(thumb);
+                del.set_x_align(Clutter.ActorAlign.END);
+                del.set_y_align(Clutter.ActorAlign.START);
+                thumbWrap.add_child(del);
+                card.add_child(thumbWrap);
+                card.add_child(name);
+                card.add_child(size);
+                this._shelfList.add_child(card);
             }
         });
     }
 
-    _iconButton(icon, onClick) {
-        const btn = new St.Button({style_class: 'mira-ctl-btn', can_focus: true});
-        btn.set_child(new St.Icon({icon_name: icon, icon_size: 16}));
-        btn.connect('clicked', onClick);
-        return btn;
+    _basename(path) {
+        return path.split('/').pop();
+    }
+
+    _fileIcon(path) {
+        try {
+            const f = Gio.File.new_for_path(path);
+            const info = f.query_info('standard::icon,thumbnail::path', Gio.FileQueryInfoFlags.NONE, null);
+            const thumb = info.get_attribute_byte_string('thumbnail::path');
+            if (thumb)
+                return Gio.FileIcon.new(Gio.File.new_for_path(thumb));
+            return info.get_icon();
+        } catch (e) {
+            return Gio.ThemedIcon.new('text-x-generic-symbolic');
+        }
+    }
+
+    _fileSize(path) {
+        try {
+            const info = Gio.File.new_for_path(path).query_info('standard::size', Gio.FileQueryInfoFlags.NONE, null);
+            let b = info.get_size();
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let u = 0;
+            while (b >= 1024 && u < units.length - 1) {
+                b /= 1024;
+                u++;
+            }
+            return `${b < 10 && u > 0 ? b.toFixed(1) : Math.round(b)} ${units[u]}`;
+        } catch (e) {
+            return '';
+        }
     }
 
     // --- sizing / positioning ---
@@ -408,6 +771,8 @@ class Notch extends St.Bin {
             : {w: t.closed.width * scale, h: t.closed.height, r: t.closed.radiusBottom};
         this._hoverSize = {w: t.hover.width * scale, h: t.hover.height, r: t.hover.radiusBottom};
         this._alertSize = {w: t.alert.width * scale, h: t.alert.height, r: t.alert.radiusBottom};
+        const g = t.greeting ?? t.alert;
+        this._greetSize = {w: g.width * scale, h: g.height, r: g.radiusBottom};
     }
 
     _sizeScale() {
@@ -447,10 +812,14 @@ class Notch extends St.Bin {
         this._cancelIdle();
         this._closedBox.hide();
         this._alertBox.hide();
+        this._greetBox.hide();
         this._openBox.show();
         this.grab_key_focus();
         this._animateTo(this._hoverSize, this._tokens.motion.open.durationMs, Clutter.AnimationMode.EASE_OUT_BACK);
-        this._refreshLyrics();
+        this._updateHeader();
+        this._startHeaderViz();
+        this._startProgress();
+        this._refreshPage(PAGES[this._page]);
     }
 
     _scheduleClose() {
@@ -468,6 +837,8 @@ class Notch extends St.Bin {
         if (!this._open)
             return;
         this._open = false;
+        this._stopHeaderViz();
+        this._stopProgress();
         this._animateTo(this._closed, this._tokens.motion.close.durationMs, Clutter.AnimationMode.EASE_OUT_QUAD, () => {
             if (!this._open) {
                 this._openBox.hide();
@@ -501,6 +872,7 @@ class Notch extends St.Bin {
         this._dotActors.forEach((d, idx) =>
             idx === this._page ? d.add_style_class_name('active') : d.remove_style_class_name('active')
         );
+        this._updateHeader();
         this._refreshPage(PAGES[this._page]);
     }
 
@@ -514,7 +886,18 @@ class Notch extends St.Bin {
         this._todoPage.visible = name === 'todo';
     }
 
-    // Load fresh data for the page we just switched to.
+    _updateHeader() {
+        if (!this._header)
+            return;
+        const name = PAGES[this._page];
+        const title = PAGE_TITLES[name] ?? '';
+        this._pageTitle.visible = title !== '';
+        if (title)
+            this._pageTitle.clutter_text.set_markup(title);
+        this._updateClock();
+        this._ring.queue_repaint();
+    }
+
     _refreshPage(name) {
         switch (name) {
         case 'lyrics':
@@ -525,12 +908,16 @@ class Notch extends St.Bin {
             break;
         case 'water':
             this.refreshWater();
+            this._waterChart.queue_repaint();
             break;
         case 'todo':
             this.refreshTodo();
             break;
         case 'shelf':
             this.refreshShelf();
+            break;
+        case 'music':
+            this._refreshMedia();
             break;
         }
     }
@@ -555,19 +942,25 @@ class Notch extends St.Bin {
         return Clutter.EVENT_STOP;
     }
 
-    // --- media / lyrics / power updates (called by extension) ---
+    // --- media / lyrics / power updates ---
     _refreshMedia() {
         const m = this._client.media();
+        this._media = m;
         const playing = m.status === 'Playing';
         const hasTrack = m.title !== '' || m.artist !== '';
 
-        this._title.text = m.title || '—';
-        this._artist.text = m.artist || '';
-        this._btnPlay.get_child().icon_name = playing
-            ? 'media-playback-pause-symbolic'
-            : 'media-playback-start-symbolic';
-        this._btnNext.reactive = m.canGoNext;
-        this._btnPrev.reactive = m.canGoPrevious;
+        if (this._title) {
+            this._title.text = m.title || '—';
+            this._artist.text = m.artist || '';
+            this._btnPlay.get_child().icon_name = playing
+                ? 'media-playback-pause-symbolic'
+                : 'media-playback-start-symbolic';
+            this._btnNext.reactive = m.canGoNext;
+            this._btnPrev.reactive = m.canGoPrevious;
+            this._setArt(m.artUrl || '');
+            this._progBase = {pos: m.positionMicros, len: m.lengthMicros, at: Date.now(), playing};
+            this._updateProgress();
+        }
 
         this._hasTrack = hasTrack;
         this._playing = playing;
@@ -578,31 +971,127 @@ class Notch extends St.Bin {
             this._stopVisualizer();
     }
 
-    // Decide the closed face: mascot eyes (always, when enabled) > visualizer
-    // (while playing) > clock. Also drives the blink loop so it only runs while
-    // the eyes are actually the visible closed face.
+    _setArt(url) {
+        if (!this._art)
+            return;
+        this._artToken++;
+        if (!url) {
+            this._art.set_style('');
+            this._art.add_style_class_name('mira-art-empty');
+            this._artIcon.show();
+            return;
+        }
+        if (url.startsWith('file://')) {
+            this._applyArtFile(decodeURIComponent(url.slice(7)));
+        } else if (url.startsWith('/')) {
+            this._applyArtFile(url);
+        } else if (url.startsWith('http')) {
+            this._downloadArt(url, this._artToken);
+        } else {
+            this._art.add_style_class_name('mira-art-empty');
+            this._artIcon.show();
+        }
+    }
+
+    _applyArtFile(path) {
+        if (!GLib.file_test(path, GLib.FileTest.EXISTS)) {
+            this._art.add_style_class_name('mira-art-empty');
+            this._artIcon.show();
+            return;
+        }
+        this._art.remove_style_class_name('mira-art-empty');
+        this._artIcon.hide();
+        const uri = GLib.filename_to_uri(path, null);
+        this._art.set_style(`background-image:url("${uri}");background-size:cover;background-position:center;`);
+    }
+
+    _downloadArt(url, token) {
+        const cacheDir = GLib.build_filenamev([GLib.get_user_cache_dir(), 'mira', 'art']);
+        GLib.mkdir_with_parents(cacheDir, 0o755);
+        let h = 0;
+        for (let i = 0; i < url.length; i++)
+            h = (h * 31 + url.charCodeAt(i)) >>> 0;
+        const dest = GLib.build_filenamev([cacheDir, `${h}.img`]);
+        if (GLib.file_test(dest, GLib.FileTest.EXISTS)) {
+            if (token === this._artToken)
+                this._applyArtFile(dest);
+            return;
+        }
+        try {
+            const src = Gio.File.new_for_uri(url);
+            src.load_contents_async(null, (file, res) => {
+                try {
+                    const [ok, contents] = file.load_contents_finish(res);
+                    if (ok && token === this._artToken) {
+                        GLib.file_set_contents(dest, contents);
+                        this._applyArtFile(dest);
+                    }
+                } catch (e) {
+                    if (token === this._artToken) {
+                        this._art.add_style_class_name('mira-art-empty');
+                        this._artIcon.show();
+                    }
+                }
+            });
+        } catch (e) {
+            this._art.add_style_class_name('mira-art-empty');
+            this._artIcon.show();
+        }
+    }
+
+    // Music progress ticker.
+    _startProgress() {
+        if (this._progressTimer)
+            return;
+        this._progressTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            if (PAGES[this._page] === 'music' && this._open)
+                this._updateProgress();
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopProgress() {
+        if (this._progressTimer) {
+            GLib.source_remove(this._progressTimer);
+            this._progressTimer = 0;
+        }
+    }
+
+    _updateProgress() {
+        const b = this._progBase;
+        if (!b || !this._progBar)
+            return;
+        let cur = b.pos;
+        if (b.playing)
+            cur += (Date.now() - b.at) * 1000;
+        if (b.len > 0)
+            cur = Math.min(cur, b.len);
+        const posS = cur / 1e6;
+        const lenS = b.len / 1e6;
+        this._posLabel.text = this._fmtTime(posS);
+        this._remLabel.text = b.len > 0 ? `-${this._fmtTime(lenS - posS)}` : this._fmtTime(posS);
+        this._progBar.set(b.len > 0 ? cur / b.len : 0);
+    }
+
     _updateClosedVisual() {
         const minimal = this._settings.get_boolean('minimal');
         const showEyes = this._settings.get_boolean('mascot') && !minimal;
-        // Visualizer only while actually playing, not for a paused track.
         const showViz = !showEyes && this._playing && !minimal;
         this._eyes.visible = showEyes;
         this._viz.visible = showViz;
         this._clock.visible = !showEyes && !showViz;
 
         if (showEyes && !this._open)
-            this._startEyeAnims();
+            this._startEyeLife();
         else
-            this._stopEyeAnims();
+            this._stopEyeLife();
     }
 
     refreshMedia() {
         this._refreshMedia();
     }
 
-    refreshPower() {
-        // Power state currently only drives alerts; reserved for a battery pip.
-    }
+    refreshPower() {}
 
     _refreshLyrics() {
         if (PAGES[this._page] !== 'lyrics' && !this._open)
@@ -624,13 +1113,15 @@ class Notch extends St.Bin {
     }
 
     _renderLyrics() {
+        if (!this._lyricLabels)
+            return;
         const cur = this._activeLine;
         const rows = [cur - 1, cur, cur + 1];
         this._lyricLabels.forEach((btn, i) => {
             const idx = rows[i];
             const line = idx >= 0 && idx < this._lines.length ? this._lines[idx] : null;
             btn._lineIndex = idx;
-            btn._label.text = line ? line[1] : '';
+            btn._label.text = line ? line[1] : (i === 1 && this._lines.length === 0 ? '♪' : '');
             if (i === 1)
                 btn.add_style_class_name('active');
             else
@@ -650,10 +1141,7 @@ class Notch extends St.Bin {
             'charger-connected': ['battery-full-charging-symbolic', `⚡ ${Math.round(arg)}%`],
             'charger-disconnected': ['battery-symbolic', `🔋 ${Math.round(arg)}%`],
             'reminder': ['alarm-symbolic', `⏰ ${arg}`],
-            'pomodoro-phase': [
-                'appointment-soon-symbolic',
-                arg === 'work' ? 'Focus!' : 'Pauză · Break',
-            ],
+            'pomodoro-phase': ['appointment-soon-symbolic', arg === 'work' ? 'Focus!' : 'Pauză · Break'],
         };
         const [icon, text] = map[type] ?? ['dialog-information-symbolic', ''];
         this._alertIcon.icon_name = icon;
@@ -662,6 +1150,7 @@ class Notch extends St.Bin {
         this._cancelIdle();
         this._closedBox.hide();
         this._openBox.hide();
+        this._greetBox.hide();
         this._alertBox.show();
         this._animateTo(this._alertSize, this._tokens.motion.alertIn.durationMs, Clutter.AnimationMode.EASE_OUT_BACK);
 
@@ -683,6 +1172,87 @@ class Notch extends St.Bin {
         });
     }
 
+    // --- greeting ---
+    _scheduleGreeting() {
+        if (this._greetTimer) {
+            GLib.source_remove(this._greetTimer);
+            this._greetTimer = 0;
+        }
+        if (!this._settings.get_boolean('greeting-enabled'))
+            return;
+        const spec = this._settings.get_string('greeting-time') || '08:20';
+        const [hh, mm] = spec.split(':').map(x => parseInt(x, 10));
+        const now = GLib.DateTime.new_now_local();
+        let target = GLib.DateTime.new_local(now.get_year(), now.get_month(), now.get_day_of_month(), hh || 8, mm || 20, 0);
+        if (target.difference(now) <= 0)
+            target = target.add_days(1);
+        const secs = Math.max(1, Math.round(target.difference(now) / 1e6));
+        this._greetTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, secs, () => {
+            this._greetTimer = 0;
+            this.showGreeting();
+            this._scheduleGreeting();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    showGreeting() {
+        const name = this._settings.get_string('greeting-name') || 'Antonio';
+        const spec = (this._settings.get_string('greeting-time') || '08:20').split(':');
+        const hour = parseInt(spec[0], 10) || 8;
+        const part = hour < 12 ? 'Bună dimineața' : hour < 18 ? 'Bună ziua' : 'Bună seara';
+        this._greetLabel.text = `${part}, ${name}`;
+
+        if (this._alertTimer) {
+            GLib.source_remove(this._alertTimer);
+            this._alertTimer = 0;
+        }
+        this._cancelIdle();
+        this._closedBox.hide();
+        this._openBox.hide();
+        this._alertBox.hide();
+        this._greetBox.show();
+        this._animateTo(this._greetSize, this._tokens.motion.alertIn.durationMs, Clutter.AnimationMode.EASE_OUT_BACK);
+
+        // A friendly little eye sequence: wake → happy squint → wink.
+        this._clearGreetSeq();
+        this._wakeEyeActors(this._greetEyes._eyes);
+        this._eyeAnim(this._greetEyes._eyes, 'surprised');
+        this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 650, () => {
+            this._eyeAnim(this._greetEyes._eyes, 'squintHappy');
+            return GLib.SOURCE_REMOVE;
+        }));
+        this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+            this._eyeAnim(this._greetEyes._eyes, 'wink');
+            return GLib.SOURCE_REMOVE;
+        }));
+        this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2300, () => {
+            this._eyeAnim(this._greetEyes._eyes, 'excited');
+            return GLib.SOURCE_REMOVE;
+        }));
+
+        this._alertTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 4200, () => {
+            this._alertTimer = 0;
+            this._greetBox.hide();
+            this._clearGreetSeq();
+            if (!this.hover) {
+                this._closedBox.show();
+                this._updateClosedVisual();
+                this._animateTo(this._closed, this._tokens.motion.alertOut.durationMs, Clutter.AnimationMode.EASE_OUT_QUAD);
+                this._armIdle();
+            } else {
+                this.open();
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _clearGreetSeq() {
+        for (const t of this._greetSeqTimers)
+            if (t)
+                GLib.source_remove(t);
+        this._greetSeqTimers = [];
+    }
+
     // --- clock ---
     _startClock() {
         this._updateClock();
@@ -702,16 +1272,20 @@ class Notch extends St.Bin {
     _updateClock() {
         const now = GLib.DateTime.new_now_local();
         this._clock.text = now.format('%H:%M');
+        if (this._date && this._open) {
+            this._date.text = `${DAYS[now.get_day_of_week() % 7]} ${now.get_day_of_month()} ${MONTHS[now.get_month() - 1]} ${now.get_year()}`;
+            this._time.text = now.format('%H:%M');
+        }
     }
 
-    // --- visualizer (only while playing) ---
+    // --- closed visualizer (only while playing) ---
     _startVisualizer() {
         if (this._vizTimer)
             return;
         const v = this._tokens.visualizer ?? {fps: 30, minHeight: 3, maxHeight: 14};
         const interval = Math.max(33, Math.round(1000 / (v.fps ?? 30)));
         this._vizTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, interval, () => {
-            for (const bar of this._vizBars) {
+            for (const bar of this._viz._bars) {
                 const h = (v.minHeight ?? 3) + Math.random() * ((v.maxHeight ?? 14) - (v.minHeight ?? 3));
                 bar.ease({height: h, duration: interval, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
             }
@@ -726,15 +1300,70 @@ class Notch extends St.Bin {
         }
     }
 
-    // --- mascot (always-on resting eyes) ---
-    // When the `mascot` setting is on, two always-blinking eyes are the notch's
-    // resting face: no clock, no idle delay, no falling asleep. Hover opens the
-    // notch as usual; closing returns to the eyes. When off, the clock is the
-    // resting face. Blinking runs only while the eyes are the visible closed
-    // face, so it costs nothing when the notch is open or the mascot is off.
-    //
-    // These three helpers are called from the open/close/alert/settings paths;
-    // with always-on eyes they just re-sync the closed face and the blink loop.
+    // Header visualizer: animates only while the notch is open.
+    _startHeaderViz() {
+        if (this._headerVizTimer)
+            return;
+        this._headerVizTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 90, () => {
+            const active = this._playing;
+            for (const bar of this._headerViz._bars) {
+                const h = active ? 3 + Math.random() * 13 : 3 + Math.random() * 4;
+                bar.ease({height: h, duration: 90, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopHeaderViz() {
+        if (this._headerVizTimer) {
+            GLib.source_remove(this._headerVizTimer);
+            this._headerVizTimer = 0;
+        }
+    }
+
+    // --- water log (local hourly record for the chart) ---
+    _waterLogPath() {
+        const dir = GLib.build_filenamev([GLib.get_user_cache_dir(), 'mira']);
+        GLib.mkdir_with_parents(dir, 0o755);
+        const today = GLib.DateTime.new_now_local().format('%Y%m%d');
+        return GLib.build_filenamev([dir, `water-${today}.json`]);
+    }
+
+    _readWaterLog() {
+        const path = this._waterLogPath();
+        let arr = new Array(24).fill(0);
+        try {
+            if (GLib.file_test(path, GLib.FileTest.EXISTS)) {
+                const [ok, bytes] = GLib.file_get_contents(path);
+                if (ok) {
+                    const dec = new TextDecoder().decode(bytes);
+                    const parsed = JSON.parse(dec);
+                    if (Array.isArray(parsed) && parsed.length === 24)
+                        arr = parsed;
+                }
+            }
+        } catch (e) {
+            // ignore, use zeros
+        }
+        this._waterLog = arr;
+        return arr;
+    }
+
+    _logWater(ml) {
+        const arr = this._readWaterLog();
+        const h = GLib.DateTime.new_now_local().get_hour();
+        arr[h] = (arr[h] ?? 0) + ml;
+        this._waterLog = arr;
+        try {
+            GLib.file_set_contents(this._waterLogPath(), JSON.stringify(arr));
+        } catch (e) {
+            // ignore
+        }
+        if (this._waterChart && this._waterChart.visible)
+            this._waterChart.queue_repaint();
+    }
+
+    // --- mascot eyes: a small personality engine -----------------------------
     _armIdle() {
         this._updateClosedVisual();
     }
@@ -744,28 +1373,16 @@ class Notch extends St.Bin {
     }
 
     _cancelIdle() {
-        this._stopEyeAnims();
+        this._stopEyeLife();
     }
 
-    _startEyeAnims() {
-        this._startBlink();
-        this._startGlance();
-    }
-
-    _stopEyeAnims() {
-        this._stopBlink();
-        this._stopGlance();
-        this._wakeEyes();
-    }
-
-    _startBlink() {
-        if (this._blinkTimer)
+    _startEyeLife() {
+        if (this._eyeLifeTimer)
             return;
         const schedule = () => {
-            // Occasional, lively blinks.
-            const delay = 2400 + Math.floor(Math.random() * 2600);
-            this._blinkTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
-                this._blink();
+            const delay = 1600 + Math.floor(Math.random() * 2600);
+            this._eyeLifeTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+                this._playRandomEyeAnim();
                 schedule();
                 return GLib.SOURCE_REMOVE;
             });
@@ -773,76 +1390,159 @@ class Notch extends St.Bin {
         schedule();
     }
 
-    _stopBlink() {
-        if (this._blinkTimer) {
-            GLib.source_remove(this._blinkTimer);
-            this._blinkTimer = 0;
+    _stopEyeLife() {
+        if (this._eyeLifeTimer) {
+            GLib.source_remove(this._eyeLifeTimer);
+            this._eyeLifeTimer = 0;
         }
+        this._wakeEyeActors(this._eyes._eyes);
     }
 
-    _blink() {
-        // Only animates height, so a concurrent glance (translation_x) is kept.
-        for (const eye of this._eyeActors ?? []) {
-            eye.ease({
-                height: 1,
-                duration: 90,
-                mode: Clutter.AnimationMode.EASE_IN_QUAD,
-                onComplete: () =>
-                    eye.ease({
-                        height: this._eyeH,
-                        duration: 120,
-                        mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                    }),
-            });
-        }
+    _playRandomEyeAnim() {
+        const fixed = this._settings.get_string('eye-style');
+        const all = ['blink', 'blink', 'blink', 'doubleBlink', 'glanceL', 'glanceR', 'lookAround', 'lookUp', 'squintHappy', 'wink', 'surprised', 'excited', 'sleepy', 'dizzy', 'love'];
+        let pick;
+        if (fixed && fixed !== 'auto' && all.includes(fixed))
+            pick = fixed;
+        else
+            pick = all[Math.floor(Math.random() * all.length)];
+        this._eyeAnim(this._eyes._eyes, pick);
     }
 
-    // Occasionally glance to one side and drift back — a bit of life.
-    _startGlance() {
-        if (this._glanceTimer)
+    // The animation library. Each case animates the pair of eye actors.
+    _eyeAnim(eyes, name) {
+        if (!eyes || eyes.length < 2)
             return;
-        const schedule = () => {
-            const delay = 3500 + Math.floor(Math.random() * 4500);
-            this._glanceTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
-                this._glance();
-                schedule();
+        const [l, r] = eyes;
+        const base = l._baseH;
+        switch (name) {
+        case 'blink':
+            this._blinkEyes(eyes);
+            break;
+        case 'doubleBlink':
+            this._blinkEyes(eyes);
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 220, () => {
+                this._blinkEyes(eyes);
                 return GLib.SOURCE_REMOVE;
             });
-        };
-        schedule();
-    }
-
-    _stopGlance() {
-        if (this._glanceTimer) {
-            GLib.source_remove(this._glanceTimer);
-            this._glanceTimer = 0;
-        }
-    }
-
-    _glance() {
-        const dir = Math.random() < 0.5 ? -1 : 1;
-        const offset = 4 * dir;
-        for (const eye of this._eyeActors ?? []) {
-            eye.ease({
-                translation_x: offset,
-                duration: 320,
-                mode: Clutter.AnimationMode.EASE_OUT_BACK,
-                onComplete: () =>
-                    eye.ease({
-                        translation_x: 0,
-                        duration: 520,
-                        mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
-                    }),
+            break;
+        case 'glanceL':
+            this._glanceEyes(eyes, -4);
+            break;
+        case 'glanceR':
+            this._glanceEyes(eyes, 4);
+            break;
+        case 'lookAround':
+            this._glanceEyes(eyes, -4);
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 560, () => {
+                this._glanceEyes(eyes, 4);
+                return GLib.SOURCE_REMOVE;
             });
+            break;
+        case 'lookUp':
+            for (const e of eyes)
+                e.ease({translation_y: -3, duration: 260, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                    onComplete: () => e.ease({translation_y: 0, duration: 420, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD})});
+            break;
+        case 'squintHappy':
+            for (const e of eyes) {
+                e.add_style_class_name('happy');
+                e.ease({height: Math.max(3, base - 5), duration: 180, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                    onComplete: () => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 520, () => {
+                        e.remove_style_class_name('happy');
+                        e.ease({height: base, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+                        return GLib.SOURCE_REMOVE;
+                    })});
+            }
+            break;
+        case 'wink':
+            // Left eye winks, right stays.
+            l.ease({height: 1, duration: 90, mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                onComplete: () => l.ease({height: base, duration: 160, mode: Clutter.AnimationMode.EASE_OUT_BACK})});
+            break;
+        case 'surprised':
+            for (const e of eyes) {
+                e.ease({scale_x: 1.5, scale_y: 1.5, duration: 160, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                    onComplete: () => e.ease({scale_x: 1, scale_y: 1, duration: 320, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD})});
+            }
+            break;
+        case 'excited':
+            for (const e of eyes)
+                this._bounce(e, 0);
+            break;
+        case 'sleepy':
+            for (const e of eyes) {
+                e.ease({height: Math.max(2, base - 6), duration: 600, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
+                    onComplete: () => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                        e.ease({height: base, duration: 500, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+                        return GLib.SOURCE_REMOVE;
+                    })});
+            }
+            break;
+        case 'dizzy':
+            this._dizzy(eyes, 0);
+            break;
+        case 'love':
+            for (const e of eyes) {
+                e.add_style_class_name('love');
+                e.ease({scale_x: 1.35, scale_y: 1.35, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                    onComplete: () => e.ease({scale_x: 1, scale_y: 1, duration: 300, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
+                        onComplete: () => e.remove_style_class_name('love')})});
+            }
+            break;
+        default:
+            this._blinkEyes(eyes);
         }
     }
 
-    _wakeEyes() {
-        for (const eye of this._eyeActors ?? []) {
-            eye.remove_all_transitions();
-            eye.set_height(this._eyeH);
-            eye.translation_x = 0;
-            eye.opacity = 255;
+    _blinkEyes(eyes) {
+        for (const e of eyes) {
+            const base = e._baseH;
+            e.ease({height: 1, duration: 90, mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                onComplete: () => e.ease({height: base, duration: 120, mode: Clutter.AnimationMode.EASE_OUT_QUAD})});
+        }
+    }
+
+    _glanceEyes(eyes, offset) {
+        for (const e of eyes) {
+            e.ease({translation_x: offset, duration: 300, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                onComplete: () => e.ease({translation_x: 0, duration: 480, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD})});
+        }
+    }
+
+    _bounce(e, n) {
+        if (n >= 3) {
+            e.ease({translation_y: 0, duration: 140, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+            return;
+        }
+        e.ease({translation_y: -4, duration: 130, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            onComplete: () => e.ease({translation_y: 0, duration: 130, mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                onComplete: () => this._bounce(e, n + 1)})});
+    }
+
+    _dizzy(eyes, n) {
+        if (n >= 4) {
+            for (const e of eyes)
+                e.ease({translation_x: 0, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+            return;
+        }
+        const off = n % 2 === 0 ? 4 : -4;
+        for (const e of eyes)
+            e.ease({translation_x: off, duration: 130, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
+                onComplete: () => { if (e === eyes[0]) this._dizzy(eyes, n + 1); }});
+    }
+
+    _wakeEyeActors(eyes) {
+        for (const e of eyes ?? []) {
+            e.remove_all_transitions();
+            e.set_height(e._baseH);
+            e.translation_x = 0;
+            e.translation_y = 0;
+            e.scale_x = 1;
+            e.scale_y = 1;
+            e.opacity = 255;
+            e.remove_style_class_name('happy');
+            e.remove_style_class_name('love');
         }
     }
 
@@ -853,22 +1553,19 @@ class Notch extends St.Bin {
         this.set_size(size.w, size.h);
         this._reposition(size.w);
         this._refreshMedia();
-        // Pick up a changed `mascot` toggle (exit if off, re-arm if on).
         this._resetIdle();
+        this._scheduleGreeting();
     }
 
     _onDestroy() {
         for (const t of [
-            this._closeTimer,
-            this._alertTimer,
-            this._clockTimer,
-            this._vizTimer,
-            this._blinkTimer,
-            this._glanceTimer,
+            this._closeTimer, this._alertTimer, this._clockTimer, this._vizTimer,
+            this._headerVizTimer, this._progressTimer, this._greetTimer, this._eyeLifeTimer,
         ])
             if (t)
                 GLib.source_remove(t);
+        this._clearGreetSeq();
         this._closeTimer = this._alertTimer = this._clockTimer = this._vizTimer = 0;
-        this._blinkTimer = this._glanceTimer = 0;
+        this._headerVizTimer = this._progressTimer = this._greetTimer = this._eyeLifeTimer = 0;
     }
 });

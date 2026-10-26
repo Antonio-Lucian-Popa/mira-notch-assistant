@@ -77,6 +77,58 @@ export default class MiraPreferences extends ExtensionPreferences {
         });
         settings.bind('mascot', mascotRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         group.add(mascotRow);
+
+        const eyeRow = new Adw.ComboRow({
+            title: _('Eye personality'),
+            subtitle: _('Which eye animation to loop (auto mixes them all)'),
+            model: new Gtk.StringList({strings: [
+                _('Auto (mix)'), 'Blink', 'Double blink', 'Glance', 'Look around',
+                'Look up', 'Happy squint', 'Wink', 'Surprised', 'Excited', 'Sleepy', 'Dizzy', 'Love',
+            ]}),
+        });
+        const eyeMap = ['auto', 'blink', 'doubleBlink', 'glanceR', 'lookAround', 'lookUp',
+            'squintHappy', 'wink', 'surprised', 'excited', 'sleepy', 'dizzy', 'love'];
+        eyeRow.selected = Math.max(0, eyeMap.indexOf(settings.get_string('eye-style')));
+        eyeRow.connect('notify::selected', row => settings.set_string('eye-style', eyeMap[row.selected]));
+        group.add(eyeRow);
+
+        // --- Greeting ---
+        const greetGroup = new Adw.PreferencesGroup({
+            title: _('Daily greeting'),
+            description: _('A personal hello with the mascot eyes, e.g. “Bună dimineața, Antonio”.'),
+        });
+        page.add(greetGroup);
+
+        const greetOnRow = new Adw.SwitchRow({
+            title: _('Show daily greeting'),
+        });
+        settings.bind('greeting-enabled', greetOnRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        greetGroup.add(greetOnRow);
+
+        const nameRow = new Adw.EntryRow({title: _('Name')});
+        nameRow.text = settings.get_string('greeting-name');
+        nameRow.connect('changed', row => settings.set_string('greeting-name', row.text));
+        greetGroup.add(nameRow);
+
+        const timeRow = new Adw.EntryRow({title: _('Time (HH:MM)')});
+        timeRow.text = settings.get_string('greeting-time');
+        timeRow.connect('changed', row => {
+            const t = row.text.trim();
+            if (/^\d{1,2}:\d{2}$/.test(t))
+                settings.set_string('greeting-time', t);
+        });
+        greetGroup.add(timeRow);
+
+        const testRow = new Adw.ActionRow({
+            title: _('Preview greeting'),
+            subtitle: _('Shows the greeting now (hover away from the notch first)'),
+        });
+        const testBtn = new Gtk.Button({label: _('Preview'), valign: Gtk.Align.CENTER});
+        testBtn.connect('clicked', () => {
+            settings.set_boolean('greeting-preview', !settings.get_boolean('greeting-preview'));
+        });
+        testRow.add_suffix(testBtn);
+        greetGroup.add(testRow);
     }
 
     _checkDaemon(row) {

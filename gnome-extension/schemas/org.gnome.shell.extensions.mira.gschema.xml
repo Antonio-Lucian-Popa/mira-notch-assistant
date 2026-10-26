@@ -39,9 +39,39 @@
     </key>
 
     <key name="mascot" type="b">
-      <default>false</default>
+      <default>true</default>
       <summary>Mascot</summary>
       <description>Use the always-animated eyes as the notch's resting face instead of the clock.</description>
+    </key>
+
+    <key name="greeting-enabled" type="b">
+      <default>true</default>
+      <summary>Daily greeting</summary>
+      <description>Show a personal greeting with the mascot eyes at the greeting time.</description>
+    </key>
+
+    <key name="greeting-time" type="s">
+      <default>'08:20'</default>
+      <summary>Greeting time</summary>
+      <description>Local time (HH:MM) at which the daily morning greeting plays.</description>
+    </key>
+
+    <key name="greeting-name" type="s">
+      <default>'Antonio'</default>
+      <summary>Greeting name</summary>
+      <description>The name used in the daily greeting, e.g. "Bună dimineața, Antonio".</description>
+    </key>
+
+    <key name="eye-style" type="s">
+      <default>'auto'</default>
+      <summary>Eye animation style</summary>
+      <description>Which mascot eye personality to loop: auto (random mix) or a fixed one.</description>
+    </key>
+
+    <key name="greeting-preview" type="b">
+      <default>false</default>
+      <summary>Greeting preview trigger</summary>
+      <description>Toggled from preferences to preview the greeting immediately.</description>
     </key>
   </schema>
 </schemalist>

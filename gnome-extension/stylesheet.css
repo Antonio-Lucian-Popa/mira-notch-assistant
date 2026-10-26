@@ -2,12 +2,13 @@
  * bottom-corner radii) is driven from JS so it stays in sync with the tokens. */
 
 .mira-notch {
-    background-color: rgba(10, 10, 11, 0.95);
+    background-color: rgba(10, 10, 11, 0.96);
     color: #f2f2f3;
     border-radius: 0 0 16px 16px;
-    box-shadow: 0 2px 10px 0 rgba(0, 0, 0, 0.45);
+    box-shadow: 0 6px 22px 0 rgba(0, 0, 0, 0.55);
 }
 
+/* ---- closed view ---- */
 .mira-closed {
     spacing: 8px;
     padding: 0 14px;
@@ -19,70 +20,76 @@
     color: #f2f2f3;
 }
 
+/* ---- open view ---- */
 .mira-open {
-    padding: 10px 14px;
+    padding: 10px 16px 8px 16px;
+    spacing: 6px;
+}
+
+/* Header */
+.mira-header {
     spacing: 8px;
+    padding: 0 2px 2px 2px;
 }
 
-.mira-page {
-    spacing: 12px;
-}
-
-.mira-art {
-    width: 44px;
-    height: 44px;
-    border-radius: 8px;
-    background-color: #26262b;
-}
-
-.mira-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #f2f2f3;
-}
-
-.mira-artist {
-    font-size: 12px;
-    color: #9a9aa0;
-}
-
-.mira-controls {
-    spacing: 4px;
-}
-
-.mira-ctl-btn {
-    border-radius: 99px;
-    padding: 6px;
-    color: #f2f2f3;
-}
-
-.mira-ctl-btn:hover {
-    background-color: rgba(242, 242, 243, 0.12);
-}
-
-/* Lyrics */
-.mira-page-lyrics {
-    spacing: 4px;
-}
-
-.mira-lyric-line {
+.mira-page-title {
     font-size: 15px;
-    color: #6e6e76;
-    padding: 2px 6px;
-    border-radius: 6px;
+    font-weight: 700;
+    color: #f2f2f3;
+    padding-right: 4px;
 }
 
-.mira-lyric-line.active {
-    font-size: 16px;
-    font-weight: 600;
+.mira-ring {
+    width: 16px;
+    height: 16px;
+}
+
+.mira-date {
+    font-size: 13px;
+    font-weight: 500;
+    color: #d7d7db;
+}
+
+.mira-time {
+    font-size: 13px;
+    font-weight: 700;
     color: #ffffff;
 }
 
-.mira-lyric-line:hover {
-    background-color: rgba(242, 242, 243, 0.08);
+.mira-header-viz {
+    spacing: 2px;
 }
 
-/* Navigation dots */
+.mira-header-viz-bar {
+    width: 3px;
+    border-radius: 2px;
+    background-color: #c9d6ff;
+}
+
+/* Body + nav arrows */
+.mira-body {
+    spacing: 8px;
+}
+
+.mira-nav {
+    width: 30px;
+    height: 30px;
+    border-radius: 99px;
+    background-color: rgba(255, 255, 255, 0.06);
+    color: #e6e6ea;
+}
+
+.mira-nav:hover {
+    background-color: rgba(255, 255, 255, 0.14);
+}
+
+.mira-nav-glyph {
+    font-size: 18px;
+    font-weight: 700;
+    color: #e6e6ea;
+}
+
+/* Dots */
 .mira-dots {
     spacing: 6px;
     padding-top: 2px;
@@ -96,10 +103,405 @@
 }
 
 .mira-dot.active {
+    width: 16px;
     background-color: #f2f2f3;
 }
 
-/* Visualizer */
+/* ---- Music ---- */
+.mira-page {
+    spacing: 10px;
+}
+
+.mira-page-music {
+    spacing: 8px;
+}
+
+.mira-music-top {
+    spacing: 12px;
+}
+
+.mira-art {
+    width: 66px;
+    height: 66px;
+    border-radius: 14px;
+    background-color: #26262b;
+}
+
+.mira-art-empty {
+    background-color: #1a2740;
+}
+
+.mira-art-icon {
+    color: #7fa0e0;
+}
+
+.mira-music-info {
+    spacing: 2px;
+}
+
+.mira-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #f2f2f3;
+}
+
+.mira-artist {
+    font-size: 12px;
+    color: #9a9aa0;
+}
+
+.mira-round-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 99px;
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.mira-round-btn:hover {
+    background-color: rgba(255, 255, 255, 0.16);
+}
+
+.mira-round-glyph {
+    font-size: 17px;
+    font-weight: 700;
+    color: #e6e6ea;
+}
+
+.mira-prog-row {
+    spacing: 10px;
+}
+
+.mira-time-small {
+    font-size: 11px;
+    color: #9a9aa0;
+}
+
+.mira-bar {
+    height: 6px;
+}
+
+.mira-music-controls {
+    spacing: 6px;
+}
+
+.mira-ghost-btn {
+    border-radius: 99px;
+    padding: 6px;
+    color: #cfcfd6;
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.mira-ghost-btn:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.mira-controls {
+    spacing: 10px;
+}
+
+.mira-ctl-btn {
+    border-radius: 99px;
+    padding: 6px;
+    color: #f2f2f3;
+}
+
+.mira-ctl-btn:hover {
+    background-color: rgba(242, 242, 243, 0.12);
+}
+
+.mira-ctl-play {
+    color: #ffffff;
+}
+
+/* ---- Lyrics ---- */
+.mira-page-lyrics {
+    spacing: 4px;
+}
+
+.mira-lyric-line {
+    font-size: 15px;
+    color: #6e6e76;
+    padding: 2px 8px;
+    border-radius: 7px;
+}
+
+.mira-lyric-line.active {
+    font-size: 17px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.mira-lyric-line:hover {
+    background-color: rgba(242, 242, 243, 0.08);
+}
+
+/* ---- Focus (Pomodoro) ---- */
+.mira-page-focus {
+    spacing: 18px;
+}
+
+.mira-focus-ring {
+    width: 74px;
+    height: 74px;
+}
+
+.mira-focus-ring-icon {
+    color: #ff5a5a;
+}
+
+.mira-focus-right {
+    spacing: 2px;
+}
+
+.mira-focus-time {
+    font-size: 30px;
+    font-weight: 700;
+    color: #f2f2f3;
+}
+
+.mira-focus-phase {
+    font-size: 12px;
+    color: #9a9aa0;
+    padding-bottom: 4px;
+}
+
+.mira-focus-pills {
+    spacing: 8px;
+}
+
+/* Pills (shared) */
+.mira-pill {
+    border-radius: 99px;
+    padding: 6px 12px;
+    background-color: #1c1c22;
+    color: #e6e6ea;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.mira-pill:hover {
+    background-color: #26262e;
+}
+
+.mira-pill-box {
+    spacing: 6px;
+}
+
+.mira-pill-accent {
+    background-color: #ff5a5a;
+    color: #ffffff;
+    padding: 7px 16px;
+}
+
+.mira-pill-accent:hover {
+    background-color: #ff6f6f;
+}
+
+.mira-pill-water {
+    background-color: #2f7fe0;
+    color: #ffffff;
+}
+
+.mira-pill-water:hover {
+    background-color: #3b90f5;
+}
+
+/* ---- Water ---- */
+.mira-page-water {
+    spacing: 16px;
+}
+
+.mira-water-left {
+    spacing: 7px;
+    min-width: 230px;
+}
+
+.mira-water-amount-row {
+    spacing: 2px;
+}
+
+.mira-water-amount {
+    font-size: 30px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.mira-water-goal {
+    font-size: 14px;
+    color: #9a9aa0;
+    padding-bottom: 5px;
+}
+
+.mira-toggle {
+    width: 34px;
+    height: 20px;
+    border-radius: 99px;
+    background-color: #3a3a42;
+    color: #cfcfd6;
+    padding: 2px;
+}
+
+.mira-toggle.on {
+    background-color: #2f7fe0;
+    color: #ffffff;
+}
+
+.mira-water-status {
+    font-size: 12px;
+    color: #9a9aa0;
+}
+
+.mira-water-btns {
+    spacing: 8px;
+    padding-top: 2px;
+}
+
+.mira-water-chart {
+    width: 250px;
+    height: 100px;
+}
+
+/* ---- Shelf ---- */
+.mira-page-shelf {
+    spacing: 8px;
+}
+
+.mira-shelf-scroll {
+    padding: 0;
+}
+
+.mira-shelf-list {
+    spacing: 12px;
+    padding: 2px 4px;
+}
+
+.mira-shelf-card {
+    spacing: 3px;
+    width: 92px;
+}
+
+.mira-shelf-thumb {
+    width: 72px;
+    height: 72px;
+    border-radius: 12px;
+    background-color: #20242c;
+}
+
+.mira-shelf-thumb-icon {
+    color: #cfcfd6;
+}
+
+.mira-shelf-cname {
+    font-size: 12px;
+    font-weight: 600;
+    color: #f2f2f3;
+    max-width: 88px;
+}
+
+.mira-shelf-csize {
+    font-size: 11px;
+    color: #9a9aa0;
+}
+
+.mira-shelf-del {
+    width: 18px;
+    height: 18px;
+    border-radius: 99px;
+    background-color: rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+}
+
+.mira-shelf-del:hover {
+    background-color: rgba(229, 83, 75, 0.9);
+}
+
+.mira-shelf-empty {
+    font-size: 13px;
+    color: #9a9aa0;
+}
+
+/* ---- Todo ---- */
+.mira-page-todo {
+    spacing: 16px;
+}
+
+.mira-todo-left {
+    spacing: 4px;
+    min-width: 170px;
+}
+
+.mira-todo-count {
+    font-size: 30px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.mira-todo-sub {
+    font-size: 12px;
+    color: #9a9aa0;
+    padding-bottom: 6px;
+}
+
+.mira-todo-btns {
+    spacing: 8px;
+}
+
+.mira-todo-entry {
+    font-size: 12px;
+    margin-top: 6px;
+    border-radius: 8px;
+    padding: 4px 8px;
+    background-color: #1c1c22;
+    color: #f2f2f3;
+}
+
+.mira-todo-scroll {
+    padding: 0;
+}
+
+.mira-todo-listbox {
+    spacing: 6px;
+    padding-right: 6px;
+}
+
+.mira-trow {
+    spacing: 8px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background-color: #1a1a20;
+}
+
+.mira-trow.done {
+    background-color: #13311f;
+}
+
+.mira-tcheck {
+    width: 22px;
+    height: 22px;
+    border-radius: 99px;
+    background-color: #2a2a31;
+    color: #8a8a92;
+}
+
+.mira-tcheck.on {
+    background-color: #2ee67a;
+    color: #0a2414;
+}
+
+.mira-ttext {
+    font-size: 13px;
+    color: #e6e6ea;
+}
+
+.mira-ttext.done {
+    color: #7bbd96;
+}
+
+.mira-ctl-btn.active {
+    color: #5b8cff;
+}
+
+/* ---- closed visualizer ---- */
 .mira-viz {
     spacing: 2px;
 }
@@ -110,7 +512,7 @@
     background-color: #8fb0ff;
 }
 
-/* Alerts */
+/* ---- alerts ---- */
 .mira-alert {
     spacing: 8px;
     padding: 0 16px;
@@ -126,83 +528,25 @@
     color: #f2f2f3;
 }
 
-/* Placeholder (phase-2) pages */
-.mira-soon {
-    font-size: 13px;
-    color: #9a9aa0;
+/* ---- greeting ---- */
+.mira-greet {
+    spacing: 14px;
+    padding: 0 20px;
 }
 
-/* Focus (Pomodoro) */
-.mira-page-focus {
-    spacing: 4px;
-}
-
-.mira-focus-phase {
-    font-size: 12px;
-    color: #9a9aa0;
-}
-
-.mira-focus-time {
-    font-size: 26px;
-    font-weight: 600;
+.mira-greet-label {
+    font-size: 16px;
+    font-weight: 700;
     color: #f2f2f3;
 }
 
-/* Water */
-.mira-water-label {
-    font-size: 18px;
-    font-weight: 600;
-    color: #f2f2f3;
-}
-
-/* Lists (todo, shelf) */
-.mira-list {
-    spacing: 3px;
-}
-
-.mira-row {
-    spacing: 6px;
-    padding: 2px 2px;
-}
-
-.mira-check {
-    min-width: 18px;
-    color: #f2f2f3;
-}
-
-.mira-todo-text {
-    font-size: 13px;
-    color: #f2f2f3;
-}
-
-.mira-todo-done {
-    font-size: 13px;
-    color: #6e6e76;
-}
-
-.mira-todo-entry {
-    font-size: 13px;
-    margin-bottom: 4px;
-}
-
-.mira-shelf-hint {
-    font-size: 11px;
-    color: #9a9aa0;
-    margin-bottom: 4px;
-}
-
-.mira-shelf-name {
-    font-size: 13px;
-    color: #f2f2f3;
-}
-
-.mira-ctl-btn.active {
-    color: #5b8cff;
-}
-
-/* Mascot (resting eyes) */
+/* ---- mascot eyes ---- */
 .mira-eyes {
     spacing: 11px;
+}
+
+.mira-greet-eyes {
+    spacing: 13px;
 }
 
 .mira-eye {
@@ -211,4 +555,20 @@
     border-radius: 99px;
     background-color: #8fb0ff;
     box-shadow: 0 0 6px 0 rgba(143, 176, 255, 0.6);
+}
+
+.mira-eye-big {
+    width: 11px;
+    height: 11px;
+    background-color: #a9c4ff;
+    box-shadow: 0 0 9px 0 rgba(143, 176, 255, 0.75);
+}
+
+.mira-eye.happy {
+    border-radius: 6px 6px 2px 2px;
+}
+
+.mira-eye.love {
+    background-color: #ff7aa6;
+    box-shadow: 0 0 9px 0 rgba(255, 122, 166, 0.8);
 }
