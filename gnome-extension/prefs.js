@@ -95,7 +95,7 @@ export default class MiraPreferences extends ExtensionPreferences {
         // --- Greeting ---
         const greetGroup = new Adw.PreferencesGroup({
             title: _('Daily greeting'),
-            description: _('A personal hello with the mascot eyes, e.g. “Bună dimineața, Antonio”.'),
+            description: _('A personal hello with the mascot eyes at your chosen time, plus birthday confetti.'),
         });
         page.add(greetGroup);
 

@@ -7,7 +7,7 @@
 // + visualizer) with left/right nav arrows flanking the page area, matching the
 // Mira design mockups. The closed view is the mascot eyes (or clock / mini
 // music). The eyes have a library of personality animations and a scheduled
-// daily greeting ("Bună dimineața, Antonio").
+// daily greeting, with birthday confetti.
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
@@ -543,7 +543,7 @@ class Notch extends St.Bin {
         this._shelfScroll = new St.ScrollView({style_class: 'mira-shelf-scroll', x_expand: true, hscrollbar_policy: St.PolicyType.AUTOMATIC, vscrollbar_policy: St.PolicyType.NEVER});
         this._shelfList = new St.BoxLayout({style_class: 'mira-shelf-list', y_align: Clutter.ActorAlign.CENTER});
         this._shelfScroll.set_child(this._shelfList);
-        this._shelfEmpty = new St.Label({style_class: 'mira-shelf-empty', text: 'Gol · copiază un fișier și apasă Ctrl+V · sau  mira-add <fișier>', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER, x_expand: true});
+        this._shelfEmpty = new St.Label({style_class: 'mira-shelf-empty', text: 'Empty · copy a file and press Ctrl+V · or  mira-add <file>', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER, x_expand: true});
         page.add_child(this._shelfScroll);
         page.add_child(this._shelfEmpty);
         this._shelfPage = page;
@@ -1202,10 +1202,10 @@ class Notch extends St.Bin {
         const hasTrack = (m.title && m.title !== '') || (m.artist && m.artist !== '');
         const meta = this._client.lyricsMeta ? this._client.lyricsMeta() : {};
         if (!hasTrack)
-            return '♪  nimic în redare';
+            return '♪  nothing playing';
         if (meta && meta.available === false)
-            return '♪  fără versuri pentru piesa asta';
-        return '♪  caut versuri…';
+            return '♪  no lyrics for this track';
+        return '♪  searching lyrics…';
     }
 
     _onLyricClicked(btn) {
@@ -1283,14 +1283,16 @@ class Notch extends St.Bin {
     }
 
     showGreeting(birthday = false) {
-        const name = this._settings.get_string('greeting-name') || 'Antonio';
+        // Name is optional; with none set the greeting simply omits it.
+        const name = (this._settings.get_string('greeting-name') || '').trim();
+        const suffix = name ? `, ${name}` : '';
         if (birthday) {
-            this._greetLabel.text = `La mulți ani, ${name}! 🎉`;
+            this._greetLabel.text = `La mulți ani${suffix}! 🎉`;
         } else {
             const spec = (this._settings.get_string('greeting-time') || '08:20').split(':');
             const hour = parseInt(spec[0], 10) || 8;
             const part = hour < 12 ? 'Bună dimineața' : hour < 18 ? 'Bună ziua' : 'Bună seara';
-            this._greetLabel.text = `${part}, ${name}`;
+            this._greetLabel.text = `${part}${suffix}`;
         }
 
         if (this._alertTimer) {

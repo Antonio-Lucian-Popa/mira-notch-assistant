@@ -63,9 +63,9 @@
     </key>
 
     <key name="greeting-name" type="s">
-      <default>'Antonio'</default>
+      <default>''</default>
       <summary>Greeting name</summary>
-      <description>The name used in the daily greeting, e.g. "Bună dimineața, Antonio".</description>
+      <description>The name used in the daily greeting. Leave empty for a greeting without a name.</description>
     </key>
 
     <key name="eye-style" type="s">
