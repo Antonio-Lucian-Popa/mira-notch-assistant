@@ -1,0 +1,23 @@
+# Netlify config for the Mira landing page.
+# The site is plain static files — no build step.
+#
+# If you connect this GitHub repo to Netlify, set the site's "Base directory"
+# to `website` in the Netlify UI; `publish = "."` below is then relative to it.
+# If you drag-and-drop the `website/` folder in the Netlify dashboard, this file
+# is picked up automatically.
+
+[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"

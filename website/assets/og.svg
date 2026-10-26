@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0b14"/>
+      <stop offset="1" stop-color="#060607"/>
+    </linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#2ee6a6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="200" cy="120" r="260" fill="#3a57d8" opacity="0.18"/>
+  <circle cx="1050" cy="520" r="280" fill="#1a7f6b" opacity="0.16"/>
+  <!-- notch -->
+  <rect x="360" y="90" width="480" height="150" rx="34" fill="#0a0a0b" stroke="#23232a" stroke-width="2"/>
+  <circle cx="560" cy="165" r="13" fill="#9fc0ff"/>
+  <circle cx="640" cy="165" r="13" fill="#9fc0ff"/>
+  <text x="600" y="360" fill="#f3f3f5" font-family="Space Grotesk, Arial, sans-serif" font-size="92" font-weight="700" text-anchor="middle">Mira</text>
+  <text x="600" y="430" fill="url(#g)" font-family="Space Grotesk, Arial, sans-serif" font-size="40" font-weight="600" text-anchor="middle">a dynamic-island notch for your desktop</text>
+  <text x="600" y="500" fill="#9a9aa4" font-family="Arial, sans-serif" font-size="26" text-anchor="middle">Open source · GNOME now · Windows soon · no telemetry</text>
+</svg>

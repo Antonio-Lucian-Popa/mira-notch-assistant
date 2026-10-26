@@ -56,6 +56,12 @@
       <description>Local time (HH:MM) at which the daily morning greeting plays.</description>
     </key>
 
+    <key name="greeting-birthday" type="s">
+      <default>''</default>
+      <summary>Birthday (MM-DD)</summary>
+      <description>Your birthday as MM-DD. At the greeting time on this day, the eyes burst into confetti and say "La mulți ani". Empty disables it.</description>
+    </key>
+
     <key name="greeting-name" type="s">
       <default>'Antonio'</default>
       <summary>Greeting name</summary>
@@ -72,6 +78,12 @@
       <default>false</default>
       <summary>Greeting preview trigger</summary>
       <description>Toggled from preferences to preview the greeting immediately.</description>
+    </key>
+
+    <key name="greeting-preview-birthday" type="b">
+      <default>false</default>
+      <summary>Birthday preview trigger</summary>
+      <description>Toggled from preferences to preview the birthday confetti greeting.</description>
     </key>
   </schema>
 </schemalist>

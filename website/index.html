@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mira — a dynamic-island notch for your desktop</title>
+<meta name="description" content="Mira is a lightweight, local-first dynamic-island notch for Linux (GNOME) and soon Windows. Music, synced lyrics, Pomodoro, water, to-dos, a file shelf and a mascot that blinks, follows your cursor and throws confetti on your birthday. Open source, no telemetry." />
+<meta name="theme-color" content="#0a0a0b" />
+
+<!-- Open Graph -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Mira — a dynamic-island notch for your desktop" />
+<meta property="og:description" content="A lightweight, local-first notch for GNOME (and soon Windows). Music, lyrics, timers, and a mascot with a personality. Open source." />
+<meta property="og:image" content="assets/og.svg" />
+
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ambient background -->
+<div class="aurora" aria-hidden="true">
+  <span class="blob b1"></span>
+  <span class="blob b2"></span>
+  <span class="blob b3"></span>
+</div>
+
+<!-- ===== NAV ===== -->
+<header class="nav" id="top">
+  <a class="brand" href="#top" aria-label="Mira home">
+    <span class="brand-eyes" aria-hidden="true"><i></i><i></i></span>
+    <span class="brand-name">Mira</span>
+  </a>
+  <nav class="nav-links" id="navLinks">
+    <a href="#features">Features</a>
+    <a href="#screens">Screens</a>
+    <a href="#mascot">Mascot</a>
+    <a href="#how">How it works</a>
+    <a href="#install">Install</a>
+    <a href="#roadmap">Roadmap</a>
+  </nav>
+  <div class="nav-cta">
+    <a class="btn btn-ghost" href="https://github.com/antonio-lucian-popa/mira-notch-assistant" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.49-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.21 1.87.86 2.33.66.07-.52.28-.86.5-1.06-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      GitHub
+    </a>
+    <button class="hamburger" id="hamburger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>
+  </div>
+</header>
+
+<main>
+<!-- ===== HERO ===== -->
+<section class="hero">
+  <div class="hero-copy reveal">
+    <span class="pill-badge"><span class="dot"></span> Open source · GNOME now · <strong>Windows soon</strong></span>
+    <h1>The notch your<br><span class="grad">desktop was missing.</span></h1>
+    <p class="lead">Mira is a lightweight “dynamic island” that lives at the top of your screen. Music, synced lyrics, a Pomodoro timer, water reminders, to-dos and a file shelf — plus a tiny mascot that blinks, follows your cursor and throws confetti on your birthday. Then it gets out of the way.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#install">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a2.4 2.4 0 0 0-2.1 1.2c-.9 0-1.7.5-2 1.4-.9.1-1.6.7-1.8 1.6-1 1-1 2.6 0 3.6-.3 1 .1 2 .9 2.6.1.9.8 1.6 1.7 1.8.3.9 1.1 1.5 2 1.5h.5l-.4 2.5-1.6.3v1.2h5.6v-1.2l-1.6-.3-.4-2.5h.5c.9 0 1.7-.6 2-1.5.9-.2 1.6-.9 1.7-1.8.8-.6 1.2-1.6.9-2.6 1-1 1-2.6 0-3.6-.2-.9-.9-1.5-1.8-1.6-.3-.9-1.1-1.4-2-1.4A2.4 2.4 0 0 0 12 2Z"/></svg>
+        Get it for Ubuntu / GNOME
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/antonio-lucian-popa/mira-notch-assistant" target="_blank" rel="noopener">★ Star on GitHub</a>
+    </div>
+    <ul class="hero-stats">
+      <li><b>~0%</b><span>idle CPU</span></li>
+      <li><b>&lt;40 MB</b><span>RAM</span></li>
+      <li><b>0</b><span>telemetry</span></li>
+      <li><b>MIT</b><span>license</span></li>
+    </ul>
+  </div>
+
+  <!-- live notch demo -->
+  <div class="hero-demo reveal" id="heroDemo">
+    <div class="notch" id="notch">
+      <div class="notch-header">
+        <span class="ring" aria-hidden="true"></span>
+        <span class="date" id="demoDate">Mon 26 Oct 2026</span>
+        <span class="time" id="demoTime">19:19</span>
+        <span class="viz" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      </div>
+      <div class="notch-body">
+        <div class="art" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="30" height="30"><path fill="currentColor" d="M9 18V6l10-2v11M9 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm10-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+        </div>
+        <div class="track">
+          <div class="t-title">Paper Sky</div>
+          <div class="t-artist">Lumen Coast — Summer Flows</div>
+          <div class="t-progress"><span style="width:62%"></span></div>
+          <div class="t-times"><span>03:13</span><span>-01:03</span></div>
+        </div>
+        <div class="t-controls" aria-hidden="true">
+          <button>⏮</button><button class="play">⏸</button><button>⏭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- resting eyes mascot that follows the cursor -->
+    <div class="mascot-chip" id="mascotChip" title="Hi! I follow your cursor.">
+      <span class="eyes" id="heroEyes"><i></i><i></i></span>
+    </div>
+    <p class="demo-hint">Move your cursor — the eyes follow. Hover the notch to meet Mira.</p>
+  </div>
+</section>
+
+<!-- ===== STATS / TRUST ===== -->
+<section class="strip">
+  <div class="strip-item"><b>Local-first</b> — no accounts, no cloud</div>
+  <div class="strip-item"><b>Event-driven</b> — redraws only while animating</div>
+  <div class="strip-item"><b>One design</b> — identical on Linux &amp; Windows</div>
+  <div class="strip-item"><b>Bilingual</b> — Română &amp; English</div>
+</section>
+
+<!-- ===== FEATURES ===== -->
+<section id="features" class="section">
+  <div class="section-head reveal">
+    <span class="eyebrow">Everything, in one calm pill</span>
+    <h2>Small footprint. <span class="grad">Big personality.</span></h2>
+    <p>Each tool is a swipeable page inside the notch. Scroll or use the arrows — it expands on hover and collapses when you’re done.</p>
+  </div>
+  <div class="grid features">
+    <article class="card reveal"><div class="ic ic-music">♪</div><h3>Music &amp; controls</h3><p>Reads any MPRIS player — Spotify, your browser, YouTube — with album art, scrubbable progress and play/next/prev.</p></article>
+    <article class="card reveal"><div class="ic ic-lyrics">“”</div><h3>Synced lyrics</h3><p>Time-synced lyrics from LRCLIB roll line-by-line. Click a line to seek. The only network call Mira ever makes.</p></article>
+    <article class="card reveal"><div class="ic ic-focus">◉</div><h3>Pomodoro focus</h3><p>A focus ring with work / short &amp; long breaks, right where you glance a hundred times a day.</p></article>
+    <article class="card reveal"><div class="ic ic-water">💧</div><h3>Water reminder</h3><p>Track your intake with a live hourly chart and a goal meter. One tap to log a glass.</p></article>
+    <article class="card reveal"><div class="ic ic-todo">✓</div><h3>To-dos &amp; reminders</h3><p>Quick tasks with a “done today” counter and timed reminders that pop in the notch.</p></article>
+    <article class="card reveal"><div class="ic ic-shelf">▤</div><h3>File shelf</h3><p>Stash files to grab later. Paste them in, or send from your file manager with <code>mira-add</code>.</p></article>
+    <article class="card reveal"><div class="ic ic-eyes">👀</div><h3>A living mascot</h3><p>Resting eyes that blink, glance, follow your cursor, wink, go sleepy — and burst into hearts.</p></article>
+    <article class="card reveal"><div class="ic ic-gift">🎉</div><h3>Greetings &amp; birthdays</h3><p>“Good morning, &lt;you&gt;” at your chosen hour — and confetti + “La mulți ani” on your birthday.</p></article>
+    <article class="card reveal"><div class="ic ic-bolt">⚡</div><h3>Feather-light</h3><p>No Electron, no webview. A tiny Rust daemon and a native shell UI. Near-zero idle CPU.</p></article>
+  </div>
+</section>
+
+<!-- ===== SCREENS ===== -->
+<section id="screens" class="section">
+  <div class="section-head reveal">
+    <span class="eyebrow">Take a look</span>
+    <h2>Six pages. <span class="grad">One swipe away.</span></h2>
+    <p>Everything is themed from a single design-token file, so it looks identical on every OS.</p>
+  </div>
+
+  <div class="screens reveal">
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" data-screen="music" role="tab">Music</button>
+      <button class="tab" data-screen="focus" role="tab">Pomodoro</button>
+      <button class="tab" data-screen="water" role="tab">Water</button>
+      <button class="tab" data-screen="todo" role="tab">To-do</button>
+      <button class="tab" data-screen="shelf" role="tab">Shelf</button>
+    </div>
+
+    <div class="stage">
+      <!-- music -->
+      <div class="mock is-active" data-screen="music">
+        <div class="m-head"><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:19</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-music">
+          <div class="m-art">♪</div>
+          <div class="m-info"><div class="m-title">Paper Sky</div><div class="m-sub">Lumen Coast — Summer Flows</div><div class="m-bar"><span style="width:62%"></span></div><div class="m-times"><span>03:13</span><span>-01:03</span></div></div>
+          <div class="m-controls">⏮ <span class="m-play">⏸</span> ⏭</div>
+        </div>
+      </div>
+      <!-- focus -->
+      <div class="mock" data-screen="focus">
+        <div class="m-head"><b>Pomodoro</b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:20</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-focus">
+          <div class="focus-ring"><div class="focus-ico">◷</div></div>
+          <div class="focus-right"><div class="focus-time">25:00</div><div class="focus-phase">Focus time</div><div class="pills"><span class="pill">Short Break</span><span class="pill pill-red">▶</span><span class="pill">Focus Time</span></div></div>
+        </div>
+      </div>
+      <!-- water -->
+      <div class="mock" data-screen="water">
+        <div class="m-head"><b>Water <span class="blue">Reminder</span></b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-water">
+          <div class="water-left"><div class="water-amt">1.5 <small>/ 1.5 L</small></div><div class="water-status">Today · <b class="blue">100%</b> · Goal reached</div><div class="m-bar blue"><span style="width:100%"></span></div><div class="pills"><span class="pill pill-blue">💧 Drink</span><span class="pill">Settings</span></div></div>
+          <div class="water-chart"><i style="height:60%"></i><i style="height:45%"></i><i style="height:90%"></i><i style="height:40%"></i><i style="height:35%"></i><i style="height:48%"></i><i style="height:70%"></i><i style="height:38%"></i></div>
+        </div>
+      </div>
+      <!-- todo -->
+      <div class="mock" data-screen="todo">
+        <div class="m-head"><b>Todo<span class="green">List</span></b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-todo">
+          <div class="todo-left"><div class="todo-count">4/5</div><div class="todo-sub">Task Done Today</div><div class="pills"><span class="pill">＋ Add</span><span class="pill">✎ Edit</span></div></div>
+          <div class="todo-list"><div class="trow done">✓ <s>Revise the report</s></div><div class="trow done">✓ <s>Reply to Dina</s></div><div class="trow done">✓ <s>Post weekly update</s></div><div class="trow">○ Water the plants</div></div>
+        </div>
+      </div>
+      <!-- shelf -->
+      <div class="mock" data-screen="shelf">
+        <div class="m-head"><b>Shelf</b> <span class="pill small">Clear</span><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-shelf">
+          <div class="shelf-card"><div class="shelf-thumb">🏖️</div><div class="shelf-name">beach.jpg</div><div class="shelf-size">2.4 MB</div></div>
+          <div class="shelf-card"><div class="shelf-thumb">📄</div><div class="shelf-name">notes.md</div><div class="shelf-size">8 KB</div></div>
+          <div class="shelf-card"><div class="shelf-thumb">🎞️</div><div class="shelf-name">clip.mp4</div><div class="shelf-size">41 MB</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== MASCOT ===== -->
+<section id="mascot" class="section mascot-section">
+  <div class="mascot-grid">
+    <div class="reveal">
+      <span class="eyebrow">Say hi to Mira</span>
+      <h2>Eyes with a <span class="grad">personality.</span></h2>
+      <p>The resting face isn’t a clock — it’s a pair of eyes that actually feel alive. They track your cursor, blink at random, and have a whole library of moods you can pin or shuffle.</p>
+      <div class="chips">
+        <span>Blink</span><span>Double-blink</span><span>Glance</span><span>Look around</span><span>Look up</span><span>Happy squint</span><span>Wink</span><span>Surprised</span><span>Excited</span><span>Sleepy</span><span>Dizzy</span><span>Love 💕</span><span>Hearts</span><span>Rainbow</span><span>Confetti 🎉</span>
+      </div>
+      <div class="mascot-actions">
+        <button class="btn btn-ghost" id="btnWink">Make it wink</button>
+        <button class="btn btn-primary" id="btnConfetti">🎉 Throw confetti</button>
+      </div>
+    </div>
+    <div class="mascot-stage reveal">
+      <div class="big-eyes" id="bigEyes"><i></i><i></i></div>
+      <p class="mascot-cap">On your birthday at 8:20, this bursts into confetti and says <b>“La mulți ani, &lt;you&gt;”</b>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== HOW IT WORKS ===== -->
+<section id="how" class="section">
+  <div class="section-head reveal">
+    <span class="eyebrow">Under the hood</span>
+    <h2>Built for <span class="grad">speed &amp; privacy.</span></h2>
+    <p>A shared Rust core drives everything. The OS just draws it — natively.</p>
+  </div>
+  <div class="grid how">
+    <article class="card reveal"><h3>🦀 Rust core &amp; daemon</h3><p>All the logic — state, lyrics sync, storage — lives in a tiny, well-tested Rust core. A daemon exposes it over D-Bus.</p></article>
+    <article class="card reveal"><h3>🖥️ Native UI</h3><p>On GNOME it’s a Shell extension (GJS). On Windows it’ll be a native window. No browser engine shipped.</p></article>
+    <article class="card reveal"><h3>🎨 One design token file</h3><p>Sizes, colors, motion and pages come from a single JSON, so both OSes look pixel-identical.</p></article>
+    <article class="card reveal"><h3>🔌 Event-driven</h3><p>Mira subscribes to OS events instead of polling, and only redraws while an animation runs.</p></article>
+    <article class="card reveal"><h3>🔒 Local-first</h3><p>No accounts, no telemetry. The sole network request is to LRCLIB for lyrics — and you can turn it off.</p></article>
+    <article class="card reveal"><h3>🖐️ Multi-monitor aware</h3><p>Lives only on your primary monitor and recentres itself when you plug or unplug a screen.</p></article>
+  </div>
+</section>
+
+<!-- ===== INSTALL ===== -->
+<section id="install" class="section install">
+  <div class="section-head reveal">
+    <span class="eyebrow">Get Mira</span>
+    <h2>Up and running in <span class="grad">a few minutes.</span></h2>
+  </div>
+  <div class="install-grid">
+    <div class="install-card reveal avail">
+      <div class="os-head"><span class="os-ico">🐧</span><div><h3>Ubuntu / GNOME</h3><span class="tag tag-ok">Available now</span></div></div>
+      <p>GNOME 46–48 on Wayland or Xorg. Build from source today; a <code>.deb</code> is on the way.</p>
+      <pre><code># 1 — build the daemon (needs Rust)
+cargo build --release -p mira-daemon
+
+# 2 — install the GNOME extension
+./gnome-extension/build.sh install
+
+# 3 — log out / in, then enable
+gnome-extensions enable mira@novabytecode.ro</code></pre>
+      <a class="btn btn-primary" href="https://github.com/antonio-lucian-popa/mira-notch-assistant#readme" target="_blank" rel="noopener">Full guide on GitHub →</a>
+    </div>
+    <div class="install-card reveal soon">
+      <div class="os-head"><span class="os-ico">🪟</span><div><h3>Windows 10 / 11</h3><span class="tag tag-soon">Coming soon</span></div></div>
+      <p>A native host with GSMTC media, battery &amp; charger alerts, a tray icon and autostart — the same notch, the same design.</p>
+      <ul class="soon-list">
+        <li>Native window, no Electron</li>
+        <li>Per-user installer</li>
+        <li>Identical pages &amp; mascot</li>
+      </ul>
+      <a class="btn btn-ghost" href="https://github.com/antonio-lucian-popa/mira-notch-assistant" target="_blank" rel="noopener">Watch the repo for the release</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ROADMAP ===== -->
+<section id="roadmap" class="section">
+  <div class="section-head reveal">
+    <span class="eyebrow">Where we’re headed</span>
+    <h2>Roadmap</h2>
+  </div>
+  <ol class="timeline">
+    <li class="reveal done"><span class="t-dot"></span><h3>Shared Rust core</h3><p>State, event bus, lyrics engine, storage — done &amp; tested.</p></li>
+    <li class="reveal done"><span class="t-dot"></span><h3>Linux daemon + GNOME UI</h3><p>MPRIS music, synced lyrics, battery alerts, integrated / floating modes.</p></li>
+    <li class="reveal done"><span class="t-dot"></span><h3>Phase 2 tools</h3><p>Pomodoro, water, to-dos, file shelf, and the living mascot with greetings &amp; birthday confetti.</p></li>
+    <li class="reveal now"><span class="t-dot"></span><h3>Polishing &amp; packaging</h3><p>A one-click <code>.deb</code>, Wi-Fi / headphones chips, volume &amp; brightness overlays.</p></li>
+    <li class="reveal next"><span class="t-dot"></span><h3>Windows host</h3><p>Native window, GSMTC media, tray + autostart — the whole experience on Windows.</p></li>
+  </ol>
+</section>
+
+<!-- ===== OPEN SOURCE CTA ===== -->
+<section class="cta">
+  <div class="cta-inner reveal">
+    <h2>Open source, and better with you.</h2>
+    <p>Mira is MIT-licensed. Star it, file an issue, or send a PR — the whole thing is built in small, always-compiling steps.</p>
+    <div class="hero-actions center">
+      <a class="btn btn-primary" href="https://github.com/antonio-lucian-popa/mira-notch-assistant" target="_blank" rel="noopener">★ Star on GitHub</a>
+      <a class="btn btn-ghost" href="https://github.com/antonio-lucian-popa/mira-notch-assistant/issues" target="_blank" rel="noopener">Report an issue</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FAQ ===== -->
+<section class="section faq">
+  <div class="section-head reveal"><span class="eyebrow">Good to know</span><h2>FAQ</h2></div>
+  <div class="faq-list reveal">
+    <details><summary>Does it phone home?</summary><p>No. There’s no account and no telemetry. The only network request is to LRCLIB for lyrics, and it’s the single networked code path in the project.</p></details>
+    <details><summary>Will it slow my machine down?</summary><p>No webview, no Electron — just a small Rust daemon and a native UI. It targets ~0% idle CPU and under 40&nbsp;MB of RAM, and only redraws while something animates.</p></details>
+    <details><summary>Which Linux versions are supported?</summary><p>GNOME Shell 46, 47 and 48, on Wayland or Xorg. Other desktops aren’t supported yet.</p></details>
+    <details><summary>Can I add files to the shelf by drag &amp; drop?</summary><p>On Wayland the system doesn’t allow dropping files onto shell chrome, so Mira gives you two reliable ways instead: copy a file and press <code>Ctrl+V</code> on the Shelf page, or run <code>mira-add &lt;file&gt;</code> from your file manager.</p></details>
+    <details><summary>When is Windows coming?</summary><p>It’s the next milestone. The shared core and design already exist — the Windows host wires them to native APIs. Watch the repo to be notified.</p></details>
+    <details><summary>Is it really free?</summary><p>Yes — MIT licensed, forever. Contributions welcome.</p></details>
+  </div>
+</section>
+</main>
+
+<!-- ===== FOOTER ===== -->
+<footer class="footer">
+  <div class="foot-brand"><span class="brand-eyes"><i></i><i></i></span> Mira</div>
+  <nav class="foot-links">
+    <a href="#features">Features</a>
+    <a href="#screens">Screens</a>
+    <a href="#install">Install</a>
+    <a href="#roadmap">Roadmap</a>
+    <a href="https://github.com/antonio-lucian-popa/mira-notch-assistant" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <p class="foot-note">Made with ♥ for the Linux desktop · MIT License · Română &amp; English</p>
+</footer>
+
+<!-- confetti canvas -->
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<script src="script.js" defer></script>
+</body>
+</html>

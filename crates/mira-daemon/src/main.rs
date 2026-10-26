@@ -390,9 +390,12 @@ mod linux {
         }
         *last_key = Some(key);
 
+        // Browser/YouTube tracks arrive as a messy single title ("Artist - Song
+        // (Official Video)") with no artist. Clean it up so LRCLIB can match.
+        let (title, artist) = clean_track(&np.title, &np.artist);
         let query = TrackQuery {
-            title: np.title.clone(),
-            artist: np.artist.clone(),
+            title,
+            artist,
             album: np.album.clone(),
             duration_secs: (np.length_micros > 0).then_some(np.length_micros / MICROS_PER_SEC),
         };
@@ -403,5 +406,52 @@ mod linux {
                 Err(_) => bus.publish(AppEvent::Lyrics(Lyrics::default())),
             }
         });
+    }
+
+    /// Normalise a now-playing title/artist for lyric lookup. Strips common
+    /// video-title noise and, when the artist is empty, splits an "Artist - Song"
+    /// title (the usual shape for YouTube played through a browser).
+    fn clean_track(raw_title: &str, raw_artist: &str) -> (String, String) {
+        let mut title = strip_noise(raw_title);
+        let mut artist = strip_noise(raw_artist);
+        // Drop a channel "- Topic" suffix that YouTube Music adds to the artist.
+        if let Some(stripped) = artist.strip_suffix("- Topic") {
+            artist = stripped.trim().to_string();
+        }
+        if artist.is_empty() {
+            if let Some((a, t)) = title.split_once(" - ") {
+                artist = a.trim().to_string();
+                title = t.trim().to_string();
+            }
+        }
+        (title, artist)
+    }
+
+    /// Remove bracketed/segment noise such as "(Official Video)", "[Lyrics]",
+    /// "(feat. X)", "| NPR", trailing "- YouTube", and collapse whitespace.
+    fn strip_noise(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut depth_paren = 0i32;
+        let mut depth_brack = 0i32;
+        for ch in s.chars() {
+            match ch {
+                '(' => depth_paren += 1,
+                ')' => depth_paren = (depth_paren - 1).max(0),
+                '[' => depth_brack += 1,
+                ']' => depth_brack = (depth_brack - 1).max(0),
+                _ if depth_paren == 0 && depth_brack == 0 => out.push(ch),
+                _ => {}
+            }
+        }
+        // Cut anything after a pipe (e.g. "Song | Live at ...").
+        if let Some(idx) = out.find('|') {
+            out.truncate(idx);
+        }
+        let out = out
+            .trim()
+            .trim_end_matches("- YouTube")
+            .trim_end_matches("- Topic")
+            .trim();
+        out.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 }

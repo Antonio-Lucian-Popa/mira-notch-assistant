@@ -572,3 +572,9 @@
     background-color: #ff7aa6;
     box-shadow: 0 0 9px 0 rgba(255, 122, 166, 0.8);
 }
+
+/* ---- particle effects ---- */
+.mira-heart {
+    color: #ff5a8a;
+    font-size: 13px;
+}

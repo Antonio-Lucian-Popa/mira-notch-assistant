@@ -56,25 +56,38 @@ export class MiraClient {
 
     start() {
         const bus = Gio.DBus.session;
+        // DO_NOT_AUTO_START so creating the proxies never blocks the shell on
+        // D-Bus activation at login (the daemon is started independently by its
+        // systemd user unit). Each creation is guarded so one failure can't
+        // abort enable() — a thrown enable() makes GNOME drop our stylesheet.
         for (const [key, name] of Object.entries(IFACE)) {
-            const proxy = Gio.DBusProxy.new_sync(
-                bus,
-                Gio.DBusProxyFlags.NONE,
-                null,
-                BUS_NAME,
-                OBJECT_PATH,
-                name,
-                null
-            );
-            this._proxies[key] = proxy;
+            try {
+                this._proxies[key] = Gio.DBusProxy.new_sync(
+                    bus,
+                    Gio.DBusProxyFlags.DO_NOT_AUTO_START,
+                    null,
+                    BUS_NAME,
+                    OBJECT_PATH,
+                    name,
+                    null
+                );
+            } catch (e) {
+                logError(e, `mira: creating proxy ${key}`);
+            }
         }
+        if (!this._proxies.service)
+            return;
 
-        // Availability: watch the service proxy's owner.
+        // Availability: watch the service proxy's owner. When the daemon
+        // appears (possibly after us, at login), re-read a full snapshot.
         this._signalIds.push([
             this._proxies.service,
-            this._proxies.service.connect('notify::g-name-owner', () =>
-                this._emit('availability-changed', this.available)
-            ),
+            this._proxies.service.connect('notify::g-name-owner', () => {
+                const avail = this.available;
+                this._emit('availability-changed', avail);
+                if (avail)
+                    this._emitSnapshot();
+            }),
         ]);
 
         // Property changes per interface -> coarse "changed" events.
@@ -90,6 +103,11 @@ export class MiraClient {
 
         // Emit an initial snapshot.
         this._emit('availability-changed', this.available);
+        this._emitSnapshot();
+    }
+
+    // Push every page's "changed" event so the UI reloads from cached props.
+    _emitSnapshot() {
         this._emit('media-changed');
         this._emit('power-changed');
         this._emit('pomodoro-changed');
@@ -100,6 +118,8 @@ export class MiraClient {
 
     _watchProps(key, event) {
         const proxy = this._proxies[key];
+        if (!proxy)
+            return;
         this._signalIds.push([
             proxy,
             proxy.connect('g-properties-changed', () => this._emit(event)),
@@ -107,61 +127,46 @@ export class MiraClient {
     }
 
     _watchSignals() {
-        const lyrics = this._proxies.lyrics;
-        this._signalIds.push([
-            lyrics,
-            lyrics.connect('g-signal', (_p, _sender, signal, params) => {
-                if (signal === 'LyricsChanged') {
-                    this._emit('lyrics-changed');
-                } else if (signal === 'ActiveLineChanged') {
-                    const idx = params.deepUnpack()[0];
-                    this._emit('active-line-changed', Number(idx));
-                }
-            }),
-        ]);
+        const on = (proxy, handler) => {
+            if (proxy)
+                this._signalIds.push([proxy, proxy.connect('g-signal', handler)]);
+        };
 
-        const power = this._proxies.power;
-        this._signalIds.push([
-            power,
-            power.connect('g-signal', (_p, _sender, signal, params) => {
-                if (signal === 'ChargerConnected') {
-                    this._emit('alert', 'charger-connected', Number(params.deepUnpack()[0]));
-                } else if (signal === 'ChargerDisconnected') {
-                    this._emit('alert', 'charger-disconnected', Number(params.deepUnpack()[0]));
-                }
-            }),
-        ]);
+        on(this._proxies.lyrics, (_p, _sender, signal, params) => {
+            if (signal === 'LyricsChanged') {
+                this._emit('lyrics-changed');
+            } else if (signal === 'ActiveLineChanged') {
+                const idx = params.deepUnpack()[0];
+                this._emit('active-line-changed', Number(idx));
+            }
+        });
 
-        const pomodoro = this._proxies.pomodoro;
-        this._signalIds.push([
-            pomodoro,
-            pomodoro.connect('g-signal', (_p, _sender, signal, params) => {
-                if (signal === 'PhaseElapsed')
-                    this._emit('alert', 'pomodoro-phase', params.deepUnpack()[0]);
-            }),
-        ]);
+        on(this._proxies.power, (_p, _sender, signal, params) => {
+            if (signal === 'ChargerConnected') {
+                this._emit('alert', 'charger-connected', Number(params.deepUnpack()[0]));
+            } else if (signal === 'ChargerDisconnected') {
+                this._emit('alert', 'charger-disconnected', Number(params.deepUnpack()[0]));
+            }
+        });
 
-        const todo = this._proxies.todo;
-        this._signalIds.push([
-            todo,
-            todo.connect('g-signal', (_p, _sender, signal, params) => {
-                if (signal === 'ItemsChanged') {
-                    this._emit('todo-changed');
-                } else if (signal === 'ReminderDue') {
-                    const [, text] = params.deepUnpack();
-                    this._emit('alert', 'reminder', text);
-                }
-            }),
-        ]);
+        on(this._proxies.pomodoro, (_p, _sender, signal, params) => {
+            if (signal === 'PhaseElapsed')
+                this._emit('alert', 'pomodoro-phase', params.deepUnpack()[0]);
+        });
 
-        const shelf = this._proxies.shelf;
-        this._signalIds.push([
-            shelf,
-            shelf.connect('g-signal', (_p, _sender, signal, _params) => {
-                if (signal === 'ItemsChanged')
-                    this._emit('shelf-changed');
-            }),
-        ]);
+        on(this._proxies.todo, (_p, _sender, signal, params) => {
+            if (signal === 'ItemsChanged') {
+                this._emit('todo-changed');
+            } else if (signal === 'ReminderDue') {
+                const [, text] = params.deepUnpack();
+                this._emit('alert', 'reminder', text);
+            }
+        });
+
+        on(this._proxies.shelf, (_p, _sender, signal, _params) => {
+            if (signal === 'ItemsChanged')
+                this._emit('shelf-changed');
+        });
     }
 
     // --- property readers (safe defaults when daemon is absent) ---
@@ -249,7 +254,7 @@ export class MiraClient {
     // Fetch all lyric lines asynchronously; cb receives [[micros, text], ...].
     getLines(cb) {
         const proxy = this._proxies.lyrics;
-        if (!proxy) {
+        if (!proxy || !this.available) {
             cb([]);
             return;
         }
@@ -268,7 +273,7 @@ export class MiraClient {
     // --- control methods ---
     _call(key, method, params = null) {
         const proxy = this._proxies[key];
-        if (!proxy)
+        if (!proxy || !this.available)
             return;
         proxy.call(method, params, Gio.DBusCallFlags.NONE, -1, null, (p, res) => {
             try {
@@ -282,7 +287,7 @@ export class MiraClient {
     // Like _call but delivers the return value (or calls onErr).
     _callRet(key, method, params, onOk, onErr) {
         const proxy = this._proxies[key];
-        if (!proxy) {
+        if (!proxy || !this.available) {
             onErr && onErr();
             return;
         }

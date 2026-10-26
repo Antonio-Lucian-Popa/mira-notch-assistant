@@ -119,15 +119,31 @@ export default class MiraPreferences extends ExtensionPreferences {
         });
         greetGroup.add(timeRow);
 
-        const testRow = new Adw.ActionRow({
-            title: _('Preview greeting'),
-            subtitle: _('Shows the greeting now (hover away from the notch first)'),
+        const bdayRow = new Adw.EntryRow({title: _('Birthday (MM-DD)')});
+        bdayRow.text = settings.get_string('greeting-birthday');
+        bdayRow.connect('changed', row => {
+            const t = row.text.trim();
+            if (t === '' || /^\d{1,2}-\d{1,2}$/.test(t))
+                settings.set_string('greeting-birthday', t);
         });
-        const testBtn = new Gtk.Button({label: _('Preview'), valign: Gtk.Align.CENTER});
+        const bdayHint = new Gtk.Label({label: _('🎉'), valign: Gtk.Align.CENTER});
+        bdayRow.add_suffix(bdayHint);
+        greetGroup.add(bdayRow);
+
+        const testRow = new Adw.ActionRow({
+            title: _('Preview'),
+            subtitle: _('Play the greeting now (hover away from the notch first)'),
+        });
+        const testBtn = new Gtk.Button({label: _('Greeting'), valign: Gtk.Align.CENTER});
         testBtn.connect('clicked', () => {
             settings.set_boolean('greeting-preview', !settings.get_boolean('greeting-preview'));
         });
+        const bdayBtn = new Gtk.Button({label: _('Birthday 🎉'), valign: Gtk.Align.CENTER, css_classes: ['suggested-action']});
+        bdayBtn.connect('clicked', () => {
+            settings.set_boolean('greeting-preview-birthday', !settings.get_boolean('greeting-preview-birthday'));
+        });
         testRow.add_suffix(testBtn);
+        testRow.add_suffix(bdayBtn);
         greetGroup.add(testRow);
     }
 

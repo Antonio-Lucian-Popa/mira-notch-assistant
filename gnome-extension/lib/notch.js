@@ -58,7 +58,7 @@ function hex(c) {
 
 export const Notch = GObject.registerClass(
 class Notch extends St.Bin {
-    _init(client, tokens, settings) {
+    _init(client, tokens, settings, hooks = {}) {
         super._init({
             style_class: 'mira-notch',
             reactive: true,
@@ -72,6 +72,7 @@ class Notch extends St.Bin {
         this._client = client;
         this._tokens = tokens;
         this._settings = settings;
+        this._hooks = hooks;
 
         this._page = 0;
         this._open = false;
@@ -92,7 +93,12 @@ class Notch extends St.Bin {
 
         // Mascot eyes.
         this._eyeLifeTimer = 0;
+        this._eyeFollowTimer = 0;
+        this._eyeBusy = false;
+        this._eyeTarget = {x: 0, y: 0};
         this._greetSeqTimers = [];
+        this._fxActors = [];
+        this._monitorsChangedId = 0;
 
         this._buildContent();
         this._computeSizes();
@@ -103,6 +109,14 @@ class Notch extends St.Bin {
         this.connect('scroll-event', (_a, ev) => this._onScroll(ev));
         this.connect('key-press-event', (_a, ev) => this._onKey(ev));
         this.connect('destroy', () => this._onDestroy());
+
+        // Keep to the primary monitor and recentre when the layout changes.
+        this._monitorsChangedId = Main.layoutManager.connect('monitors-changed', () => {
+            this._computeSizes();
+            const s = this._open ? this._hoverSize : this._closed;
+            this.set_size(s.w, s.h);
+            this._reposition(s.w);
+        });
 
         this._startClock();
         this._refreshMedia();
@@ -186,6 +200,11 @@ class Notch extends St.Bin {
         this._stack.add_child(this._openBox);
         this._stack.add_child(this._alertBox);
         this._stack.add_child(this._greetBox);
+
+        // Overlay for transient particle effects (hearts, confetti). Free
+        // positioning (no layout manager), non-reactive, drawn on top.
+        this._fxLayer = new St.Widget({x_expand: true, y_expand: true, reactive: false});
+        this._stack.add_child(this._fxLayer);
 
         this._buildMusicPage();
         this._buildLyricsPage();
@@ -444,8 +463,14 @@ class Notch extends St.Bin {
             this._logWater(ML_PER_GLASS);
             this.refreshWater();
         }, 'mira-pill mira-pill-water');
-        const settings = this._pillButton('emblem-system-symbolic', 'Settings', () => this._client.waterRemove());
+        const undo = this._pillButton('edit-undo-symbolic', 'Undo', () => {
+            this._client.waterRemove();
+            this._logWater(-ML_PER_GLASS);
+            this.refreshWater();
+        });
+        const settings = this._pillButton('emblem-system-symbolic', 'Settings', () => this._hooks.openPrefs && this._hooks.openPrefs());
         btns.add_child(drink);
+        btns.add_child(undo);
         btns.add_child(settings);
 
         left.add_child(amountRow);
@@ -518,7 +543,7 @@ class Notch extends St.Bin {
         this._shelfScroll = new St.ScrollView({style_class: 'mira-shelf-scroll', x_expand: true, hscrollbar_policy: St.PolicyType.AUTOMATIC, vscrollbar_policy: St.PolicyType.NEVER});
         this._shelfList = new St.BoxLayout({style_class: 'mira-shelf-list', y_align: Clutter.ActorAlign.CENTER});
         this._shelfScroll.set_child(this._shelfList);
-        this._shelfEmpty = new St.Label({style_class: 'mira-shelf-empty', text: 'Gol · trimite cu  mira-add <fișier>', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER, x_expand: true});
+        this._shelfEmpty = new St.Label({style_class: 'mira-shelf-empty', text: 'Gol · copiază un fișier și apasă Ctrl+V · sau  mira-add <fișier>', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER, x_expand: true});
         page.add_child(this._shelfScroll);
         page.add_child(this._shelfEmpty);
         this._shelfPage = page;
@@ -933,6 +958,15 @@ class Notch extends St.Bin {
 
     _onKey(ev) {
         const sym = ev.get_key_symbol();
+        const state = ev.get_state();
+        const ctrl = (state & Clutter.ModifierType.CONTROL_MASK) !== 0;
+        // Ctrl+V on the shelf page pastes copied files/paths into the shelf —
+        // the practical stand-in for drag-and-drop, which Wayland does not allow
+        // onto shell chrome (see also `mira-add`).
+        if (ctrl && (sym === Clutter.KEY_v || sym === Clutter.KEY_V) && PAGES[this._page] === 'shelf') {
+            this._pasteToShelf();
+            return Clutter.EVENT_STOP;
+        }
         if (sym === Clutter.KEY_Left)
             this.setPage(this._page - 1);
         else if (sym === Clutter.KEY_Right)
@@ -940,6 +974,35 @@ class Notch extends St.Bin {
         else
             return Clutter.EVENT_PROPAGATE;
         return Clutter.EVENT_STOP;
+    }
+
+    // Read the clipboard and add any file paths / file:// URIs to the shelf.
+    _pasteToShelf() {
+        const cb = St.Clipboard.get_default();
+        cb.get_text(St.ClipboardType.CLIPBOARD, (_c, text) => {
+            if (!text)
+                return;
+            let added = 0;
+            for (let line of text.split(/[\r\n]+/)) {
+                line = line.trim();
+                if (line === '' || line === 'copy' || line === 'cut')
+                    continue;
+                let path = line;
+                if (path.startsWith('file://')) {
+                    try {
+                        path = GLib.filename_from_uri(path)[0];
+                    } catch (e) {
+                        continue;
+                    }
+                }
+                if (path.startsWith('/') && GLib.file_test(path, GLib.FileTest.EXISTS)) {
+                    this._client.shelfAdd(path);
+                    added++;
+                }
+            }
+            if (added > 0)
+                this.refreshShelf();
+        });
     }
 
     // --- media / lyrics / power updates ---
@@ -969,6 +1032,8 @@ class Notch extends St.Bin {
             this._startVisualizer();
         else
             this._stopVisualizer();
+        if (this._open && PAGES[this._page] === 'lyrics')
+            this._renderLyrics();
     }
 
     _setArt(url) {
@@ -1117,17 +1182,30 @@ class Notch extends St.Bin {
             return;
         const cur = this._activeLine;
         const rows = [cur - 1, cur, cur + 1];
+        const placeholder = this._lyricsPlaceholder();
         this._lyricLabels.forEach((btn, i) => {
             const idx = rows[i];
             const line = idx >= 0 && idx < this._lines.length ? this._lines[idx] : null;
             btn._lineIndex = idx;
-            btn._label.text = line ? line[1] : (i === 1 && this._lines.length === 0 ? '♪' : '');
+            btn._label.text = line ? line[1] : (i === 1 && this._lines.length === 0 ? placeholder : '');
             if (i === 1)
                 btn.add_style_class_name('active');
             else
                 btn.remove_style_class_name('active');
             btn.reactive = !!line;
         });
+    }
+
+    // Middle-line text when no lyrics are loaded, tailored to the media state.
+    _lyricsPlaceholder() {
+        const m = this._media || {};
+        const hasTrack = (m.title && m.title !== '') || (m.artist && m.artist !== '');
+        const meta = this._client.lyricsMeta ? this._client.lyricsMeta() : {};
+        if (!hasTrack)
+            return '♪  nimic în redare';
+        if (meta && meta.available === false)
+            return '♪  fără versuri pentru piesa asta';
+        return '♪  caut versuri…';
     }
 
     _onLyricClicked(btn) {
@@ -1189,18 +1267,31 @@ class Notch extends St.Bin {
         const secs = Math.max(1, Math.round(target.difference(now) / 1e6));
         this._greetTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, secs, () => {
             this._greetTimer = 0;
-            this.showGreeting();
+            this.showGreeting(this._isBirthdayToday());
             this._scheduleGreeting();
             return GLib.SOURCE_REMOVE;
         });
     }
 
-    showGreeting() {
+    _isBirthdayToday() {
+        const spec = (this._settings.get_string('greeting-birthday') || '').trim();
+        const m = spec.match(/^(\d{1,2})-(\d{1,2})$/);
+        if (!m)
+            return false;
+        const now = GLib.DateTime.new_now_local();
+        return now.get_month() === parseInt(m[1], 10) && now.get_day_of_month() === parseInt(m[2], 10);
+    }
+
+    showGreeting(birthday = false) {
         const name = this._settings.get_string('greeting-name') || 'Antonio';
-        const spec = (this._settings.get_string('greeting-time') || '08:20').split(':');
-        const hour = parseInt(spec[0], 10) || 8;
-        const part = hour < 12 ? 'Bună dimineața' : hour < 18 ? 'Bună ziua' : 'Bună seara';
-        this._greetLabel.text = `${part}, ${name}`;
+        if (birthday) {
+            this._greetLabel.text = `La mulți ani, ${name}! 🎉`;
+        } else {
+            const spec = (this._settings.get_string('greeting-time') || '08:20').split(':');
+            const hour = parseInt(spec[0], 10) || 8;
+            const part = hour < 12 ? 'Bună dimineața' : hour < 18 ? 'Bună ziua' : 'Bună seara';
+            this._greetLabel.text = `${part}, ${name}`;
+        }
 
         if (this._alertTimer) {
             GLib.source_remove(this._alertTimer);
@@ -1211,29 +1302,53 @@ class Notch extends St.Bin {
         this._openBox.hide();
         this._alertBox.hide();
         this._greetBox.show();
-        this._animateTo(this._greetSize, this._tokens.motion.alertIn.durationMs, Clutter.AnimationMode.EASE_OUT_BACK);
+        // Birthday uses a wider banner so the confetti has room.
+        const size = birthday ? {w: Math.max(this._greetSize.w, 520), h: this._greetSize.h, r: this._greetSize.r} : this._greetSize;
+        this._animateTo(size, this._tokens.motion.alertIn.durationMs, Clutter.AnimationMode.EASE_OUT_BACK);
 
-        // A friendly little eye sequence: wake → happy squint → wink.
         this._clearGreetSeq();
         this._wakeEyeActors(this._greetEyes._eyes);
-        this._eyeAnim(this._greetEyes._eyes, 'surprised');
-        this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 650, () => {
-            this._eyeAnim(this._greetEyes._eyes, 'squintHappy');
-            return GLib.SOURCE_REMOVE;
-        }));
-        this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
-            this._eyeAnim(this._greetEyes._eyes, 'wink');
-            return GLib.SOURCE_REMOVE;
-        }));
-        this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2300, () => {
-            this._eyeAnim(this._greetEyes._eyes, 'excited');
-            return GLib.SOURCE_REMOVE;
-        }));
 
-        this._alertTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 4200, () => {
+        if (birthday) {
+            // Confetti bursts + excited, loving eyes.
+            this._eyeAnim(this._greetEyes._eyes, 'surprised');
+            this._spawnParticles('confetti', 48);
+            this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 900, () => {
+                this._eyeAnim(this._greetEyes._eyes, 'hearts');
+                return GLib.SOURCE_REMOVE;
+            }));
+            this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                this._spawnParticles('confetti', 36);
+                this._eyeAnim(this._greetEyes._eyes, 'excited');
+                return GLib.SOURCE_REMOVE;
+            }));
+            this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 3400, () => {
+                this._eyeAnim(this._greetEyes._eyes, 'rainbow');
+                return GLib.SOURCE_REMOVE;
+            }));
+        } else {
+            // A friendly little eye sequence: wake → happy squint → wink → hearts.
+            this._eyeAnim(this._greetEyes._eyes, 'surprised');
+            this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 650, () => {
+                this._eyeAnim(this._greetEyes._eyes, 'squintHappy');
+                return GLib.SOURCE_REMOVE;
+            }));
+            this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+                this._eyeAnim(this._greetEyes._eyes, 'wink');
+                return GLib.SOURCE_REMOVE;
+            }));
+            this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2300, () => {
+                this._eyeAnim(this._greetEyes._eyes, 'hearts');
+                return GLib.SOURCE_REMOVE;
+            }));
+        }
+
+        const hold = birthday ? 6500 : 4200;
+        this._alertTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, hold, () => {
             this._alertTimer = 0;
             this._greetBox.hide();
             this._clearGreetSeq();
+            this._clearParticles();
             if (!this.hover) {
                 this._closedBox.show();
                 this._updateClosedVisual();
@@ -1352,7 +1467,7 @@ class Notch extends St.Bin {
     _logWater(ml) {
         const arr = this._readWaterLog();
         const h = GLib.DateTime.new_now_local().get_hour();
-        arr[h] = (arr[h] ?? 0) + ml;
+        arr[h] = Math.max(0, (arr[h] ?? 0) + ml);
         this._waterLog = arr;
         try {
             GLib.file_set_contents(this._waterLogPath(), JSON.stringify(arr));
@@ -1377,6 +1492,7 @@ class Notch extends St.Bin {
     }
 
     _startEyeLife() {
+        this._startEyeFollow();
         if (this._eyeLifeTimer)
             return;
         const schedule = () => {
@@ -1391,6 +1507,7 @@ class Notch extends St.Bin {
     }
 
     _stopEyeLife() {
+        this._stopEyeFollow();
         if (this._eyeLifeTimer) {
             GLib.source_remove(this._eyeLifeTimer);
             this._eyeLifeTimer = 0;
@@ -1400,13 +1517,81 @@ class Notch extends St.Bin {
 
     _playRandomEyeAnim() {
         const fixed = this._settings.get_string('eye-style');
-        const all = ['blink', 'blink', 'blink', 'doubleBlink', 'glanceL', 'glanceR', 'lookAround', 'lookUp', 'squintHappy', 'wink', 'surprised', 'excited', 'sleepy', 'dizzy', 'love'];
+        // With pointer-follow on, drop the plain look-around moves (the eyes
+        // already track the mouse) and favour expressive ones.
+        const all = this._eyeFollowTimer
+            ? ['blink', 'blink', 'blink', 'doubleBlink', 'squintHappy', 'wink', 'surprised', 'excited', 'sleepy', 'love', 'hearts']
+            : ['blink', 'blink', 'blink', 'doubleBlink', 'glanceL', 'glanceR', 'lookAround', 'lookUp', 'squintHappy', 'wink', 'surprised', 'excited', 'sleepy', 'dizzy', 'love', 'hearts'];
         let pick;
-        if (fixed && fixed !== 'auto' && all.includes(fixed))
+        if (fixed && fixed !== 'auto')
             pick = fixed;
         else
             pick = all[Math.floor(Math.random() * all.length)];
-        this._eyeAnim(this._eyes._eyes, pick);
+        this._playEyeAnimRested(pick);
+    }
+
+    // Play an animation on the resting eyes, pausing pointer-follow for the
+    // moves that drive translation so the two don't fight.
+    _playEyeAnimRested(name) {
+        const busyMs = {glanceL: 900, glanceR: 900, lookAround: 1400, lookUp: 800, dizzy: 1000, excited: 1000}[name];
+        if (busyMs) {
+            this._eyeBusy = true;
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, busyMs, () => {
+                this._eyeBusy = false;
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+        this._eyeAnim(this._eyes._eyes, name);
+    }
+
+    // --- eyes follow the pointer (primary monitor only) ---
+    _startEyeFollow() {
+        if (this._eyeFollowTimer)
+            return;
+        this._eyeFollowTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 55, () => {
+            this._updateEyeFollow();
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopEyeFollow() {
+        if (this._eyeFollowTimer) {
+            GLib.source_remove(this._eyeFollowTimer);
+            this._eyeFollowTimer = 0;
+        }
+    }
+
+    _updateEyeFollow() {
+        if (this._open || this._eyeBusy || !this._eyes.visible)
+            return;
+        const eyes = this._eyes._eyes;
+        if (!eyes || eyes.length < 2)
+            return;
+        const monitor = Main.layoutManager.primaryMonitor;
+        let ox = 0, oy = 0;
+        try {
+            const [px, py] = global.get_pointer();
+            // Only react to the pointer on the primary monitor (where we live).
+            const onPrimary = monitor && px >= monitor.x && px < monitor.x + monitor.width &&
+                py >= monitor.y && py < monitor.y + monitor.height;
+            if (onPrimary) {
+                const [ax, ay] = this.get_transformed_position();
+                const cx = ax + this.width / 2;
+                const cy = ay + this.height / 2;
+                const maxX = 4, maxY = 3;
+                ox = Math.max(-1, Math.min(1, (px - cx) / 160)) * maxX;
+                oy = Math.max(-0.4, Math.min(1, (py - cy) / 220)) * maxY;
+            }
+        } catch (e) {
+            return;
+        }
+        // Smoothly approach the target so motion feels alive, not jittery.
+        this._eyeTarget.x += (ox - this._eyeTarget.x) * 0.35;
+        this._eyeTarget.y += (oy - this._eyeTarget.y) * 0.35;
+        for (const e of eyes) {
+            e.translation_x = this._eyeTarget.x;
+            e.translation_y = this._eyeTarget.y;
+        }
     }
 
     // The animation library. Each case animates the pair of eye actors.
@@ -1490,9 +1675,115 @@ class Notch extends St.Bin {
                         onComplete: () => e.remove_style_class_name('love')})});
             }
             break;
+        case 'hearts':
+            for (const e of eyes) {
+                e.add_style_class_name('love');
+                e.ease({scale_x: 1.25, scale_y: 1.25, duration: 260, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                    onComplete: () => e.ease({scale_x: 1, scale_y: 1, duration: 360, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
+                        onComplete: () => e.remove_style_class_name('love')})});
+            }
+            this._spawnParticles('hearts', 7);
+            break;
+        case 'confetti':
+            this._eyeAnim(eyes, 'surprised');
+            this._spawnParticles('confetti', 40);
+            break;
+        case 'rainbow':
+            this._rainbow(eyes, 0);
+            break;
         default:
             this._blinkEyes(eyes);
         }
+    }
+
+    _rainbow(eyes, n) {
+        const cols = ['#ff5a5a', '#ffb24d', '#ffe24d', '#2ee67a', '#3b9cff', '#9a6bff', '#ff7aa6'];
+        if (n >= cols.length) {
+            for (const e of eyes)
+                e.set_style('');
+            return;
+        }
+        for (const e of eyes)
+            e.set_style(`background-color:${cols[n]}; box-shadow:0 0 8px 0 ${cols[n]};`);
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 140, () => {
+            this._rainbow(eyes, n + 1);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    // --- particle effects (hearts, confetti) over the notch ---
+    _spawnParticles(kind, count) {
+        const w = this.width || this._closed.w;
+        const h = this.height || this._closed.h;
+        for (let i = 0; i < count; i++) {
+            const delay = Math.floor(Math.random() * (kind === 'confetti' ? 260 : 420));
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+                this._spawnOneParticle(kind, w, h);
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+    }
+
+    _spawnOneParticle(kind, w, h) {
+        if (!this._fxLayer)
+            return;
+        // One actor, one transition each, so nothing touches a disposed object.
+        let p;
+        if (kind === 'hearts') {
+            p = new St.Label({text: '❤', style_class: 'mira-heart'});
+            const startX = w / 2 - 14 + (Math.random() * 28 - 14);
+            p.set_position(startX, h * 0.5);
+            p.set_pivot_point(0.5, 0.5);
+            this._fxLayer.add_child(p);
+            this._fxActors.push(p);
+            p.ease({
+                translation_y: -(h * 0.45 + Math.random() * 20),
+                translation_x: (Math.random() * 24 - 12),
+                scale_x: 1.4, scale_y: 1.4,
+                opacity: 0,
+                duration: 950 + Math.random() * 500,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                onComplete: () => this._removeParticle(p),
+            });
+        } else {
+            // confetti square: falls, spins, fades; a single transition.
+            const cols = ['#ff5a5a', '#ffb24d', '#ffe24d', '#2ee67a', '#3b9cff', '#9a6bff', '#ff7aa6', '#ffffff'];
+            const c = cols[Math.floor(Math.random() * cols.length)];
+            const sz = 5 + Math.floor(Math.random() * 5);
+            p = new St.Widget({style: `background-color:${c}; border-radius:1px;`});
+            p.set_size(sz, sz);
+            p.set_pivot_point(0.5, 0.5);
+            p.set_position(Math.random() * w, -6);
+            p.rotation_angle_z = Math.random() * 360;
+            this._fxLayer.add_child(p);
+            this._fxActors.push(p);
+            p.ease({
+                translation_y: h + 14,
+                translation_x: (Math.random() * 60 - 30),
+                rotation_angle_z: p.rotation_angle_z + (Math.random() * 540 - 270),
+                opacity: 0,
+                duration: 1200 + Math.random() * 900,
+                mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                onComplete: () => this._removeParticle(p),
+            });
+        }
+    }
+
+    _removeParticle(p) {
+        const i = this._fxActors.indexOf(p);
+        if (i >= 0)
+            this._fxActors.splice(i, 1);
+        if (p && !p._destroyed) {
+            p._destroyed = true;
+            p.remove_all_transitions();
+            p.destroy();
+        }
+    }
+
+    _clearParticles() {
+        for (const p of this._fxActors.slice())
+            this._removeParticle(p);
+        this._fxActors = [];
     }
 
     _blinkEyes(eyes) {
@@ -1541,6 +1832,7 @@ class Notch extends St.Bin {
             e.scale_x = 1;
             e.scale_y = 1;
             e.opacity = 255;
+            e.set_style('');
             e.remove_style_class_name('happy');
             e.remove_style_class_name('love');
         }
@@ -1561,11 +1853,18 @@ class Notch extends St.Bin {
         for (const t of [
             this._closeTimer, this._alertTimer, this._clockTimer, this._vizTimer,
             this._headerVizTimer, this._progressTimer, this._greetTimer, this._eyeLifeTimer,
+            this._eyeFollowTimer,
         ])
             if (t)
                 GLib.source_remove(t);
         this._clearGreetSeq();
+        this._clearParticles();
+        if (this._monitorsChangedId) {
+            Main.layoutManager.disconnect(this._monitorsChangedId);
+            this._monitorsChangedId = 0;
+        }
         this._closeTimer = this._alertTimer = this._clockTimer = this._vizTimer = 0;
         this._headerVizTimer = this._progressTimer = this._greetTimer = this._eyeLifeTimer = 0;
+        this._eyeFollowTimer = 0;
     }
 });

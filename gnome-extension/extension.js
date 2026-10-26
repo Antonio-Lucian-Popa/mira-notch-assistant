@@ -18,7 +18,15 @@ export default class MiraExtension extends Extension {
         this._tokens = loadTokens(this.path);
 
         this._client = new MiraClient();
-        this._notch = new Notch(this._client, this._tokens, this._settings);
+        this._notch = new Notch(this._client, this._tokens, this._settings, {
+            openPrefs: () => {
+                try {
+                    this.openPreferences();
+                } catch (e) {
+                    logError(e, 'mira: openPreferences');
+                }
+            },
+        });
 
         // Top chrome, centered. trackFullscreen hides it when an app goes
         // fullscreen (the canonical global.display 'in-fullscreen-changed'
@@ -35,7 +43,9 @@ export default class MiraExtension extends Extension {
             if (key === 'mode')
                 this._applyMode();
             else if (key === 'greeting-preview')
-                this._notch.showGreeting();
+                this._notch.showGreeting(false);
+            else if (key === 'greeting-preview-birthday')
+                this._notch.showGreeting(true);
             else
                 this._notch.applySettings();
         });
