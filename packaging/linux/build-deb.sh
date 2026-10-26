@@ -12,7 +12,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 UUID="mira@novabytecode.ro"
-VERSION="$(grep -m1 '^version' "$REPO_ROOT/Cargo.toml" | sed -E 's/.*"([^"]+)".*/\1/')"
+# Version: $MIRA_VERSION wins (set by CI to match the release tag), else the
+# workspace version from Cargo.toml.
+VERSION="${MIRA_VERSION:-$(grep -m1 '^version' "$REPO_ROOT/Cargo.toml" | sed -E 's/.*"([^"]+)".*/\1/')}"
 ARCH="amd64"
 PKG="mira_${VERSION}_${ARCH}"
 BUILD="$HERE/build/$PKG"
