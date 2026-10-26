@@ -41,6 +41,7 @@ jobs:
     outputs:
       tag: ${{ steps.v.outputs.tag }}
       version: ${{ steps.v.outputs.version }}
+      has_windows: ${{ steps.v.outputs.has_windows }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,6 +49,13 @@ jobs:
       - id: v
         run: |
           set -euo pipefail
+          # The Windows job can't use hashFiles() in its job-level `if`, so we
+          # detect the crate here (repo is checked out) and expose a flag.
+          if [ -f crates/mira-win/Cargo.toml ]; then
+            echo "has_windows=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_windows=false" >> "$GITHUB_OUTPUT"
+          fi
           cargo_ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
           latest="$(git tag -l 'v*' --sort=-v:refname | head -n1 || true)"
           if [ -z "$latest" ]; then
@@ -91,7 +99,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     needs: version
-    if: ${{ hashFiles('crates/mira-win/Cargo.toml') != '' }}
+    if: ${{ needs.version.outputs.has_windows == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
