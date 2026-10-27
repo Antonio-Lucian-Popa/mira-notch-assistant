@@ -97,8 +97,11 @@ jobs:
         run: |
           cargo fmt --check
           cargo test --workspace --locked
+          cargo test -p mira-core --test lrclib_http --locked -- --ignored
           node gnome-extension/tests/gaze.test.mjs
           node gnome-extension/tests/reminders.test.mjs
+          node gnome-extension/tests/routines.test.mjs
+          MIRA_TEST_PRIVATE_BUS=1 dbus-run-session -- cargo test -p mira-platform-linux --test mpris_sessions --locked
           cargo build --locked -p mira-daemon
           dbus-run-session -- python3 crates/mira-daemon/tests/reminders_dbus.py
       - name: Build the .deb

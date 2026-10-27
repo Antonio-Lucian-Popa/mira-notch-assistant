@@ -610,3 +610,9 @@
 .mira-reminder-badge.soon { background-color: #30261a; color: #ffce91; }
 .mira-reminder-badge.urgent, .mira-reminder-badge.due { background-color: #391f28; color: #ff9b9b; }
 .mira-reminder-badge:hover { background-color: #3c3544; }
+
+.mira-lyrics-search { spacing: 5px; }
+.mira-lyrics-search-status { font-size: 9px; color: #a6b4cf; max-width: 470px; }
+.mira-routine-label { font-size: 13px; max-width: 410px; line-height: 1.4; }
+.mira-plain-lyrics { font-size: 12px; line-height: 1.5; color: #d8dfed; padding: 4px 10px; }
+.mira-routine-detail { font-size: 12px; color: #c9d2e5; padding-top: 5px; }

@@ -22,5 +22,6 @@ pub mod reminder;
 pub mod source;
 pub mod store;
 pub mod tokens;
+pub mod track;
 
 pub use error::{Error, Result};

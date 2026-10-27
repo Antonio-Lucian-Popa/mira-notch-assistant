@@ -17,6 +17,8 @@ pub enum AppEvent {
     NowPlaying(NowPlaying),
     /// Lyrics for the current track were (re)loaded.
     Lyrics(Lyrics),
+    /// Async lyric result; the host discards requests superseded by a newer track.
+    LyricsResult { request_id: u64, lyrics: Lyrics },
     /// The active lyric line changed; `None` means "before the first line".
     /// Computed centrally so UIs stay logic-free.
     ActiveLine(Option<usize>),

@@ -42,6 +42,10 @@ export default class MiraExtension extends Extension {
         this._settingsChangedId = this._settings.connect('changed', (_s, key) => {
             if (key === 'mode')
                 this._applyMode();
+            else if (key === 'routine-delivered')
+                return;
+            else if (key === 'routine-preview')
+                this._notch.showRoutine(this._settings.get_string('routine-preview').split(':')[0]);
             else if (key === 'greeting-preview')
                 this._notch.showGreeting(false);
             else if (key === 'greeting-preview-birthday')

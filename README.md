@@ -3,20 +3,20 @@
 A lightweight, local-first **"dynamic island" notch** for the top of your
 screen. Mira shows your music, synced lyrics, timers, system notifications and a
 file shelf, then gets out of the way. It runs on **Windows 10/11** and
-**Ubuntu / GNOME (Wayland)**, and looks identical on both.
+**Ubuntu / GNOME (Wayland)**. Windows is currently a native preview with a smaller feature set.
 
-> **Status: v0.3.0.** Linux has the daemon and GNOME extension. Windows has an
+> **Status: v0.4.0 source update.** Linux has the daemon and GNOME extension. Windows has an
 > initial native host with cursor-following eyes, a clock, media-key controls,
 > Pomodoro, a persistent daily water counter and standalone reminders. Windows feature parity is in progress.
 
 ## Principles
 
 - **Light** — target ~0% idle CPU and under 40 MB RAM. No webview, no Electron.
-- **Event-driven** — subscribe to OS events; never poll. Redraw only while an
-  animation runs.
+- **Event-driven** — subscribe to OS media events; update countdowns while needed. Avoid continuous
+  redraws when the UI is at rest.
 - **Local-first** — no accounts, no telemetry. The only network access is to
   [LRCLIB](https://lrclib.net) for lyrics.
-- **Identical on both OSes** — one design-token file (`design/tokens.json`)
+- **Shared visual language** — one design-token file (`design/tokens.json`)
   drives sizes, colors, animations and pages for both UIs.
 - **Bilingual** — Romanian and English from the start.
 
@@ -44,7 +44,8 @@ The heart of Mira, with no OS dependencies:
 | `event`  | internal event bus (`tokio::broadcast`) + media-command channel |
 | `app`    | `AppState` aggregator; owns the one shared rule — which lyric line is active |
 | `lyrics` | LRC parser + line⇄time synchronisation |
-| `lrclib` | LRCLIB client (the only networked code) |
+| `lrclib` | LRCLIB client (the only networked code), ranked search fallback and timeouts |
+| `track` | Browser title normalization, private metadata detection and track identity |
 | `store`  | SQLite (`rusqlite`, bundled) + `config.toml` settings |
 | `source` | per-OS data-source traits (`MediaSource`, `PowerSource`, … + `MediaControl`) |
 | `tokens` | typed view over `design/tokens.json` (embedded at build time) |
@@ -120,7 +121,7 @@ To build on Windows:
 cargo build --release --locked -p mira-win
 .\target\release\mira-win.exe
 # Optional installer (Inno Setup 6 installed):
-iscc /DMiraVersion=0.3.0 packaging/windows/mira.iss
+iscc /DMiraVersion=0.4.0 packaging/windows/mira.iss
 ```
 
 Move the pointer anywhere on the desktop: the resting eyes follow it smoothly
@@ -157,6 +158,59 @@ node gnome-extension/tests/reminders.test.mjs
 dbus-run-session -- python3 crates/mira-daemon/tests/reminders_dbus.py
 ```
 
+## Browser music and lyrics (GNOME)
+
+Mira watches events from **all MPRIS players**, including already-open Brave,
+Chrome/Chromium and Firefox instances. Starting playback in another browser,
+changing a track, seeking, or closing a player re-evaluates the active session.
+Playback commands target the selected player. A player that disappears during
+selection is skipped instead of stopping the source. The initial snapshot is
+subscribed before discovery so an already-playing browser appears at startup.
+
+Browser/site support still matters: only metadata exposed through MPRIS can be
+read. Chromium-based private sessions can deliberately replace title/artist with
+**“A site is playing media”**. This is a browser privacy feature, not a song name;
+Mira labels it as hidden metadata instead of searching LRCLIB for that phrase.
+See the [Chromium implementation](https://github.com/chromium/chromium/blob/main/chrome/browser/media/chrome_media_session_client.cc).
+
+For a private session or incomplete metadata, open **Lyrics**, enter the song
+**title** and optional **artist**, and press Search/Enter. This explicitly sends
+those fields to LRCLIB without changing browser privacy settings. Manual results
+are labeled; look up the next private song again if the browser still exposes the
+same placeholder. Synced results follow the playback position supplied by the
+browser; plain lyrics are scrollable. Some songs have no LRCLIB entry, and a
+browser that withholds position cannot provide reliable synchronized highlighting.
+
+Normal titles such as `Artist – Song (Official Video)` are normalized for lookup.
+A new player, title, artist, album or duration invalidates the previous query;
+late results from an older query are discarded. No browser history or page
+contents are inspected. Windows preview currently has media keys only.
+
+If no song is detected, start playback and check whether the browser exposes an
+`org.mpris.MediaPlayer2.*` service (`busctl --user list`). If the browser or its
+sandbox does not expose MPRIS, Mira cannot obtain metadata from it. Restart Mira
+after upgrading the daemon; browser metadata integration must be enabled in the
+browser where supported.
+
+## Lunch and end-of-work greetings (GNOME)
+
+Open Mira preferences → **Prânz și sfârșitul programului**:
+
+- Enable lunch and choose its local time, for example `13:00`.
+- Enable the end-of-work greeting and choose the finish time, for example `18:00`.
+- Set an advance heads-up from 0 to 60 minutes (default: 5).
+- Choose weekdays only or every day; use the three Preview buttons to see the animations.
+
+Lunch uses happy eyes and hearts; the heads-up is gentle; the final goodbye
+adds a small confetti celebration. The optional greeting name personalizes the
+messages. Settings validate `HH:MM`, including `00:00`. Each event also produces
+a desktop notification. Daily delivery markers survive extension restarts to
+avoid duplicates; a 15-minute catch-up window handles short suspends without
+replaying old lunch greetings late in the day. Calendar times follow the local
+timezone and daylight-saving changes. These routines require an active GNOME
+session with the extension enabled; pending banners wait until the notch is free.
+This settings UI is not yet part of the Windows preview.
+
 ## Roadmap
 
 **Phase 1 (current):** core → Windows host (notch window, GSMTC media, LRCLIB
@@ -175,3 +229,21 @@ the Windows host for all of it.
 ## License
 
 MIT.
+
+### Regression checks for browsers and routines
+
+```sh
+cargo test --workspace --locked
+cargo test -p mira-core --test lrclib_http -- --ignored
+MIRA_TEST_PRIVATE_BUS=1 dbus-run-session -- cargo test -p mira-platform-linux --test mpris_sessions
+node gnome-extension/tests/routines.test.mjs
+node gnome-extension/tests/reminders.test.mjs
+node gnome-extension/tests/gaze.test.mjs
+glib-compile-schemas --strict gnome-extension/schemas
+```
+
+The browser regression test uses two simulated MPRIS services on a private bus;
+it covers switching already-open browsers, private metadata, command routing,
+player exit and returning to an empty session. It is opt-in to keep ordinary
+`cargo test` from touching a live user bus. Real browser behavior depends on the
+installed browser, site, sandbox and privacy configuration.

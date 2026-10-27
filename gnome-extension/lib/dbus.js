@@ -218,6 +218,7 @@ export class MiraClient {
             available: this._get('lyrics', 'Available', false),
             synced: this._get('lyrics', 'Synced', false),
             source: this._get('lyrics', 'Source', 'none'),
+            manualQuery: this._get('lyrics', 'ManualQuery', ''),
         };
     }
 
@@ -369,6 +370,11 @@ export class MiraClient {
     }
     shelfRemove(id) {
         this._call('shelf', 'Remove', new GLib.Variant('(x)', [id]));
+    }
+
+    lookupLyrics(title, artist, onOk, onErr) {
+        this._callRet('lyrics', 'Lookup', new GLib.Variant('(ss)', [title, artist]),
+            ret => onOk(Boolean(ret.deepUnpack()[0])), onErr);
     }
 
     playPause() {
