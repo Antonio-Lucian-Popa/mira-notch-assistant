@@ -127,7 +127,10 @@ impl PomodoroEngine {
         self.phase = match self.phase {
             PomodoroPhase::Work => {
                 self.completed_cycles += 1;
-                if self.completed_cycles % self.config.cycles_before_long == 0 {
+                if self
+                    .completed_cycles
+                    .is_multiple_of(self.config.cycles_before_long)
+                {
                     PomodoroPhase::LongBreak
                 } else {
                     PomodoroPhase::ShortBreak

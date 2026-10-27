@@ -127,11 +127,12 @@
     <article class="card reveal"><div class="ic ic-focus">◉</div><h3>Pomodoro focus</h3><p>A focus ring with work / short &amp; long breaks, right where you glance a hundred times a day.</p></article>
     <article class="card reveal"><div class="ic ic-water">💧</div><h3>Water reminder</h3><p>Track your intake with a live hourly chart and a goal meter. One tap to log a glass.</p></article>
     <article class="card reveal"><div class="ic ic-todo">✓</div><h3>To-dos</h3><p>Quick tasks with a “done today” counter and timed reminders that pop in the notch.</p></article>
-    <article class="card reveal"><div class="ic ic-shelf">▤</div><h3>File shelf</h3><p>Stash files to grab later. Paste them in, or send from your file manager with <code>mira-add</code>.</p></article>
+    <article class="card reveal"><div class="ic ic-shelf">▤</div><h3>File shelf</h3><p>Drop files or folders into a temporary shortcut shelf. Springy cards keep originals at their location; add a folder for fast, bounded text search.</p></article>
     <article class="card reveal"><div class="ic ic-eyes">👀</div><h3>A contextual companion</h3><p>Music, focus and evening moods, four native themes and a motion slider. Preview expressions in the mascot studio; urgent reminders always take priority.</p></article>
     <article class="card reveal"><div class="ic ic-gift">🎉</div><h3>Greetings &amp; birthdays</h3><p>“Good morning, &lt;you&gt;” at your chosen hour — and confetti + “La mulți ani” on your birthday.</p></article>
     <article class="card reveal"><div class="ic ic-reminders">◷</div><h3>Say it naturally</h3><p>“Call Alex in 20 minutes” or “Raport mâine la 10”. Local parsing, daily/weekly recurrence, a live countdown and urgency-aware eyes. Preview the time, snooze or mark done.</p></article>
     <article class="card reveal"><div class="ic ic-routine">☀</div><h3>Your daily rhythm</h3><p>Set lunch and end-of-work hours in GNOME settings. A warm lunch greeting, a gentle heads-up and an animated goodbye — with weekday control.</p></article>
+    <article class="card reveal"><div class="ic ic-shelf">✎</div><h3>Sticky notes &amp; clipboard</h3><p>A multiline scratchpad and the last 32 copied texts, kept only in session memory. Pause capture or clear everything whenever you need.</p></article>
     <article class="card reveal"><div class="ic ic-bolt">⚡</div><h3>Feather-light</h3><p>No Electron, no webview. A tiny Rust daemon and a native shell UI. Designed for a small footprint; CPU and RAM depend on active features.</p></article>
   </div>
 </section>
@@ -140,7 +141,7 @@
 <section id="screens" class="section">
   <div class="section-head reveal">
     <span class="eyebrow">Take a look</span>
-    <h2>Eight pages. <span class="grad">One swipe away.</span></h2>
+    <h2>A little workspace. <span class="grad">Right where you need it.</span></h2>
     <p>Explore the GNOME experience below. Windows preview includes eyes, media-key controls, focus, water and reminders; full feature parity is still in progress.</p>
   </div>
 
@@ -219,13 +220,15 @@
   </div>
 </section>
 
+<section class="section" id="phone-voice"><div class="section-head reveal"><span class="eyebrow">Android 0.2 preview · Desktop 0.7</span><h2>Your voice. <span class="grad">Your own PC.</span></h2><p>Explicit Android voice sessions, fixed commands, transcript PDFs and a paired LAN remote. Start receiving on your PC, associate by QR, then transfer completed transcripts or trigger shortcuts defined on the PC.</p><p class="illustration-note">Permanent background hotword detection is not implemented. Android speech availability varies; camera styling follows reported cutouts and cannot draw on the lens. No chatbot or paid AI API is needed. Automatic transfers require the same reachable network and may be delayed by Android.</p></div></section>
+
 <!-- ===== MASCOT ===== -->
 <section id="mascot" class="section mascot-section">
   <div class="mascot-grid">
     <div class="reveal">
       <span class="eyebrow">Say hi to Mira</span>
       <h2>Eyes with a <span class="grad">personality.</span></h2>
-      <p>The resting face isn’t a clock — it’s a pair of eyes that actually feel alive. They track your cursor, blink at random, and have a whole library of moods you can pin or shuffle.</p>
+      <p>Top icon tabs keep every tool close, without side arrows. Click to open, double-click the frame to return home. Drag down into a resizable workspace; choose Follow, Pin or Free roam from the context menu. They track your cursor, blink at random, and have a whole library of moods you can pin or shuffle.</p>
       <div class="chips">
         <span>Blink</span><span>Double-blink</span><span>Glance</span><span>Look around</span><span>Look up</span><span>Happy squint</span><span>Wink</span><span>Surprised</span><span>Excited</span><span>Sleepy</span><span>Dizzy</span><span>Love 💕</span><span>Hearts</span><span>Rainbow</span><span>Confetti 🎉</span>
       </div>
@@ -334,7 +337,7 @@ gnome-extensions enable mira@novabytecode.ro</code></pre>
     <details><summary>Does it phone home?</summary><p>No. There’s no account and no telemetry. The only network request is to LRCLIB for lyrics. Searches include the song metadata, or the title and artist you explicitly enter.</p></details>
     <details><summary>Will it slow my machine down?</summary><p>No webview, no Electron — just a small Rust daemon and a native UI. It targets ~0% idle CPU and under 40&nbsp;MB of RAM, and only redraws while something animates.</p></details>
     <details><summary>Which Linux versions are supported?</summary><p>GNOME Shell 46, 47 and 48, on Wayland or Xorg. Other desktops aren’t supported yet.</p></details>
-    <details><summary>Can I add files to the shelf by drag &amp; drop?</summary><p>On Wayland the system doesn’t allow dropping files onto shell chrome, so Mira gives you two reliable ways instead: copy a file and press <code>Ctrl+V</code> on the Shelf page, or run <code>mira-add &lt;file&gt;</code> from your file manager.</p></details>
+    <details><summary>Can I add files to the shelf by drag &amp; drop?</summary><p>Yes. Windows accepts Explorer drops; GNOME opens a native GTK4 drop area from the shelf or when dragging onto the robot. Dropped folders provide shortcut context and a search scope. Hovered-folder detection depends on the file manager and is not universal.</p></details>
     <details><summary>What works on Windows?</summary><p>The native preview includes cursor-following eyes, media keys, Pomodoro, water and reminders. The installer supports per-user installation and optional sign-in startup. Track metadata, lyrics, daily-rhythm settings and other GNOME features are still pending.</p></details>
     <details><summary>Why is my Incognito song title hidden?</summary><p>Chromium-based browsers may deliberately replace it with “A site is playing media”. Mira cannot reconstruct information the browser withholds. In the GNOME Lyrics page, enter a title and artist to look up lyrics explicitly; availability depends on LRCLIB.</p></details>
     <details><summary>Is it really free?</summary><p>Yes — MIT licensed, forever. Contributions welcome.</p></details>

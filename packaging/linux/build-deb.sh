@@ -54,7 +54,7 @@ Version: $VERSION
 Section: gnome
 Priority: optional
 Architecture: $ARCH
-Depends: gnome-shell (>= 46), dbus
+Depends: gnome-shell (>= 46), dbus, gjs, gir1.2-gtk-4.0
 Installed-Size: $SIZE_KB
 Maintainer: Mira contributors <noreply@novabytecode.ro>
 Homepage: https://github.com/antonio-lucian-popa/mira-notch-assistant

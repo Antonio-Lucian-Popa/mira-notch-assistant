@@ -8,7 +8,7 @@
 //!
 //! Design principles encoded here:
 //! * **Event-driven** — state changes arrive as events; nothing polls.
-//! * **Local-first** — the only network access lives in [`lrclib`] (lrclib.net).
+//! * **Local-first** — lyrics use [`lrclib`]; [`bridge`] is an opt-in authenticated LAN service.
 //! * **Lightweight** — no heavy runtime; a current-thread Tokio runtime is enough.
 
 pub mod app;
@@ -26,3 +26,7 @@ pub mod tokens;
 pub mod track;
 
 pub use error::{Error, Result};
+
+pub mod workspace;
+
+pub mod bridge;

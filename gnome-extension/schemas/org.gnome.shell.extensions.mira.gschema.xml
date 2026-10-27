@@ -19,6 +19,9 @@
       <description>Floating pill, or integrated into the panel's clock area.</description>
     </key>
 
+    <key name="desktop-motion" type="s"><choices><choice value="docked"/><choice value="follow"/><choice value="pinned"/><choice value="roam"/></choices><default>'follow'</default><summary>Desktop companion movement</summary></key>
+    <key name="workspace-width" type="i"><range min="440" max="960"/><default>640</default><summary>Workspace width</summary></key>
+    <key name="workspace-height" type="i"><range min="300" max="760"/><default>420</default><summary>Workspace height</summary></key>
     <key name="minimal" type="b">
       <default>false</default>
       <summary>Minimal closed notch</summary>
