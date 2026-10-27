@@ -2,6 +2,8 @@
 
 #[cfg(windows)]
 mod host;
+#[cfg(windows)]
+mod media;
 
 #[cfg(windows)]
 fn main() {

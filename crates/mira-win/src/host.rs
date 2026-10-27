@@ -8,6 +8,10 @@ use mira_core::{
 use std::{
     cell::RefCell,
     ptr::{null, null_mut},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use windows_sys::Win32::{
@@ -37,6 +41,9 @@ struct Host {
     reminders: Vec<Reminder>,
     selected_reminder: usize,
     animation_clock: Instant,
+    playing: Arc<AtomicBool>,
+    preview: Option<(String, Instant)>,
+    summary_banner: Option<(store::DailySummary, Instant)>,
 }
 thread_local! { static HOST: RefCell<Option<Host>> = const { RefCell::new(None) }; }
 fn wide(s: &str) -> Vec<u16> {
@@ -71,6 +78,9 @@ impl Host {
             reminders,
             selected_reminder: 0,
             animation_clock: Instant::now(),
+            playing: crate::media::watch(),
+            preview: None,
+            summary_banner: None,
         })
     }
     fn ro(&self) -> bool {
@@ -90,12 +100,18 @@ impl Host {
             self.tokens.notch.closed
         };
         (
-            ((if !self.open && !self.reminders.is_empty() {
+            ((if !self.open && self.summary_banner.is_some() {
+                500.
+            } else if !self.open && !self.reminders.is_empty() {
                 300.
             } else {
                 size.width
             }) * self.scale) as i32,
-            (size.height * self.scale) as i32,
+            ((if !self.open && self.summary_banner.is_some() {
+                80.
+            } else {
+                size.height
+            }) * self.scale) as i32,
         )
     }
     unsafe fn layout(&mut self, hwnd: HWND) {
@@ -125,6 +141,23 @@ impl Host {
     unsafe fn tick(&mut self, hwnd: HWND) {
         let now = Instant::now();
         let mut dirty = false;
+        if self
+            .preview
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed().as_secs_f32() > 4.2)
+        {
+            self.preview = None;
+            dirty = true;
+        }
+        if self
+            .summary_banner
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed().as_secs() > 8)
+        {
+            self.summary_banner = None;
+            self.layout(hwnd);
+            dirty = true;
+        }
         let mut point: POINT = std::mem::zeroed();
         let mut rect: RECT = std::mem::zeroed();
         GetWindowRect(hwnd, &mut rect);
@@ -137,6 +170,9 @@ impl Host {
                 self.away = None;
                 if !self.open {
                     self.open = true;
+                    if self.summary_banner.is_some() {
+                        self.page = 4;
+                    }
                     self.layout(hwnd);
                     dirty = true;
                 }
@@ -168,6 +204,14 @@ impl Host {
             }
         }
         let urgency = self.reminders.first().map(|r| r.urgency(epoch()));
+        if !self.open
+            && self.config.motion_intensity > 0.
+            && (self.preview.is_some()
+                || (self.config.mascot_contextual
+                    && (self.playing.load(Ordering::Relaxed) || self.focus.is_running())))
+        {
+            dirty = true;
+        }
         if matches!(
             urgency,
             Some(Urgency::Soon | Urgency::Urgent | Urgency::Due)
@@ -189,8 +233,24 @@ impl Host {
         let seconds = now.duration_since(self.last_second).as_secs();
         if seconds > 0 {
             self.last_second += Duration::from_secs(seconds);
-            for _ in 0..seconds {
-                self.focus.tick();
+            let mut activity = std::collections::BTreeMap::<String, (i64, i64, u32)>::new();
+            for offset in 0..seconds {
+                let before = self.focus.snapshot();
+                let result = self.focus.tick();
+                if before.running && before.phase == mira_core::model::PomodoroPhase::Work {
+                    let sample = epoch() - (seconds - offset - 1) as i64;
+                    let entry = activity
+                        .entry(store::local_day(sample))
+                        .or_insert((sample, 0, 0));
+                    entry.1 += 1;
+                    entry.2 +=
+                        matches!(result, mira_core::pomodoro::TickResult::PhaseChanged(_)) as u32;
+                }
+            }
+            for (_, (sample, seconds, sessions)) in activity {
+                if let Err(e) = self.store.record_focus_batch(sample, seconds, sessions) {
+                    self.error = Some(e.to_string());
+                }
             }
             let mut time: SYSTEMTIME = std::mem::zeroed();
             GetLocalTime(&mut time);
@@ -205,6 +265,26 @@ impl Host {
                     match self.store.mark_reminder_notified(r.id) {
                         Ok(()) => r.notified = true,
                         Err(e) => self.error = Some(e.to_string()),
+                    }
+                }
+            }
+            if self.config.daily_summary_enabled {
+                let spec = &self.config.daily_summary_time;
+                if let Some((hh, mm)) = parse_clock(spec) {
+                    let age = (time.wHour as i32 * 60 + time.wMinute as i32)
+                        - (hh as i32 * 60 + mm as i32);
+                    let key = format!("{}:{spec}", self.day);
+                    if (0..=15).contains(&age)
+                        && self
+                            .store
+                            .get_meta("windows-summary-delivered")
+                            .ok()
+                            .flatten()
+                            .as_deref()
+                            != Some(key.as_str())
+                        && self.show_summary(hwnd).is_ok()
+                    {
+                        let _ = self.store.set_meta("windows-summary-delivered", &key);
                     }
                 }
             }
@@ -223,9 +303,12 @@ impl Host {
         let y = y as f32 / self.scale;
         let w = self.tokens.notch.hover.width;
         if y < 50. {
-            self.page = (self.page + 1) % 4;
+            self.page = (self.page + 1) % 5;
         } else if (105. ..160.).contains(&y) {
             match self.page {
+                4 => {
+                    self.show_summary(hwnd).ok();
+                }
                 3 => {
                     let index = self
                         .selected_reminder
@@ -241,7 +324,7 @@ impl Host {
                         let result = if x < w * 3. / 5. {
                             self.store.snooze_reminder(r.id, epoch() + 300, epoch())
                         } else {
-                            self.store.remove_reminder(r.id)
+                            self.store.complete_occurrence(r.id, r.due_epoch, epoch())
                         };
                         if let Err(e) = result {
                             self.error = Some(e.to_string());
@@ -296,48 +379,203 @@ impl Host {
         FillRect(buffer, &bounds, bg);
         DeleteObject(bg);
         SetBkMode(buffer, TRANSPARENT as i32);
-        if !self.open {
+        if !self.open || self.preview.is_some() {
             let next = self.reminders.first();
             let urgency = next.map(|r| r.urgency(epoch()));
-            let color = match urgency {
-                Some(Urgency::Due | Urgency::Urgent) => rgb(255, 120, 120),
-                Some(Urgency::Soon) => rgb(255, 182, 92),
-                _ => rgb(143, 176, 255),
+            let color = if self
+                .preview
+                .as_ref()
+                .is_some_and(|(name, _)| name == "reminder")
+            {
+                rgb(255, 120, 120)
+            } else {
+                match urgency {
+                    Some(Urgency::Due | Urgency::Urgent) => rgb(255, 120, 120),
+                    Some(Urgency::Soon) => rgb(255, 182, 92),
+                    _ => match self.config.mascot_theme.as_str() {
+                        "robot" => rgb(118, 245, 191),
+                        "cat" => rgb(255, 207, 119),
+                        "pixel" => rgb(197, 160, 255),
+                        _ => rgb(143, 176, 255),
+                    },
+                }
             };
             let brush = CreateSolidBrush(color);
             let old_brush = SelectObject(buffer, brush);
             let old_pen = SelectObject(buffer, GetStockObject(NULL_PEN));
-            let eye_h = if self.closed_blink { 1.5 } else { 9. };
+            let strength = if self.config.motion_intensity.is_finite() {
+                self.config.motion_intensity.clamp(0., 1.)
+            } else {
+                0.6
+            };
+            let preview = self
+                .preview
+                .as_ref()
+                .map(|(name, at)| (name.as_str(), at.elapsed().as_secs_f32()));
+            let mut local: SYSTEMTIME = std::mem::zeroed();
+            GetLocalTime(&mut local);
+            let mood = preview.map(|p| p.0).unwrap_or_else(|| {
+                if !self.config.mascot_contextual {
+                    "idle"
+                } else if self.focus.is_running() {
+                    "focus"
+                } else if self.playing.load(Ordering::Relaxed) {
+                    "music"
+                } else if local.wHour >= 21 || local.wHour < 6 {
+                    "sleepy"
+                } else {
+                    "idle"
+                }
+            });
+            let (mut eye_w, mut base_h) = match self.config.mascot_theme.as_str() {
+                "robot" => (12., 8.),
+                "cat" => (12., 13.),
+                "pixel" => (10., 10.),
+                _ => (9., 9.),
+            };
+            if self.preview.is_some() {
+                eye_w *= 2.;
+                base_h *= 2.;
+            }
+            let mut eye_h = if self.closed_blink && strength > 0. {
+                1.5
+            } else {
+                base_h
+            };
+            if strength > 0. && !matches!(urgency, Some(Urgency::Urgent | Urgency::Due)) {
+                if mood == "focus" || mood == "happy" {
+                    eye_h *= 1. - 0.25 * strength;
+                }
+                if mood == "sleepy" {
+                    eye_h *= 1. - 0.45 * strength;
+                }
+                if mood == "surprised" {
+                    eye_h *= 1. + 0.5 * strength;
+                }
+                if mood == "blink" && preview.is_some_and(|(_, t)| t % 1.5 < 0.15) {
+                    eye_h = 1.5;
+                }
+            }
             let phase = self.animation_clock.elapsed().as_secs_f32();
-            let intensity = match urgency {
-                Some(Urgency::Due | Urgency::Urgent) => 2.,
-                Some(Urgency::Soon) if phase % 3. < 0.5 => 0.6,
-                _ => 0.,
+            let intensity = if mood == "reminder" {
+                2.
+            } else {
+                match urgency {
+                    Some(Urgency::Due | Urgency::Urgent) => 2.,
+                    Some(Urgency::Soon) if phase % 3. < 0.5 => 0.6,
+                    _ => 0.,
+                }
             };
             let beat = if phase % 1. < 0.45 {
-                (phase * 32.).sin() * intensity
+                (phase * 32.).sin() * intensity * strength
             } else {
                 0.
             };
+            let dance =
+                if strength > 0. && intensity == 0. && (mood == "music" || mood == "excited") {
+                    (phase * 7.).sin() * 2. * strength
+                } else {
+                    0.
+                };
             for offset in [-10., 10.] {
                 let cx = if next.is_some() {
                     40. * self.scale
                 } else {
                     w as f32 / 2.
                 } + (offset + self.gaze.0 + beat) * self.scale;
-                let cy = h as f32 / 2. + (self.gaze.1 - beat.abs() * 0.5) * self.scale;
-                Ellipse(
-                    buffer,
-                    (cx - 4.5 * self.scale) as i32,
-                    (cy - eye_h / 2. * self.scale) as i32,
-                    (cx + 4.5 * self.scale) as i32,
-                    (cy + eye_h / 2. * self.scale) as i32,
+                let cy = h as f32 / 2.
+                    + (self.gaze.1 - beat.abs() * 0.5 + if offset < 0. { dance } else { -dance })
+                        * self.scale;
+                let height = if mood == "wink"
+                    && offset < 0.
+                    && preview.is_some_and(|(_, t)| t % 1.5 < 0.25)
+                    && strength > 0.
+                {
+                    1.5
+                } else {
+                    eye_h
+                };
+                let rect = (
+                    (cx - eye_w / 2. * self.scale) as i32,
+                    (cy - height / 2. * self.scale) as i32,
+                    (cx + eye_w / 2. * self.scale) as i32,
+                    (cy + height / 2. * self.scale) as i32,
                 );
+                match self.config.mascot_theme.as_str() {
+                    "pixel" => {
+                        Rectangle(buffer, rect.0, rect.1, rect.2, rect.3);
+                    }
+                    "robot" => {
+                        RoundRect(
+                            buffer,
+                            rect.0,
+                            rect.1,
+                            rect.2,
+                            rect.3,
+                            (2. * self.scale) as i32,
+                            (2. * self.scale) as i32,
+                        );
+                    }
+                    _ => {
+                        Ellipse(buffer, rect.0, rect.1, rect.2, rect.3);
+                    }
+                }
+                if self.config.mascot_theme == "cat" && height > 3. {
+                    let pupil = CreateSolidBrush(rgb(34, 27, 18));
+                    let old = SelectObject(buffer, pupil);
+                    Ellipse(
+                        buffer,
+                        (cx - 1.5 * self.scale) as i32,
+                        (cy - height * 0.35 * self.scale) as i32,
+                        (cx + 1.5 * self.scale) as i32,
+                        (cy + height * 0.35 * self.scale) as i32,
+                    );
+                    SelectObject(buffer, old);
+                    DeleteObject(pupil);
+                }
             }
             SelectObject(buffer, old_brush);
             SelectObject(buffer, old_pen);
             DeleteObject(brush);
-            if let Some(r) = next {
+            if let Some((name, _)) = &self.preview {
+                self.text(
+                    buffer,
+                    &format!("Studio · {} · {}", self.config.mascot_theme, name),
+                    h / (self.scale as i32).max(1) / 2 + 24,
+                    h / (self.scale as i32).max(1) - 4,
+                    12,
+                    rgb(200, 200, 215),
+                );
+            } else if let Some((stats, _)) = &self.summary_banner {
+                self.text_with_left(
+                    buffer,
+                    self.tr("Ziua ta ✨", "Your day ✨"),
+                    (5, 27),
+                    (15, rgb(242, 242, 243)),
+                    78,
+                );
+                self.text_with_left(
+                    buffer,
+                    &format!(
+                        "{} min focus · {} sesiuni",
+                        stats.focus_seconds / 60,
+                        stats.focus_sessions
+                    ),
+                    (28, 48),
+                    (12, rgb(184, 209, 255)),
+                    78,
+                );
+                self.text_with_left(
+                    buffer,
+                    &format!(
+                        "{} sarcini · {} remindere · {} pahare",
+                        stats.todos_completed, stats.reminders_completed, stats.water_glasses
+                    ),
+                    (49, 74),
+                    (11, rgb(184, 209, 255)),
+                    78,
+                );
+            } else if let Some(r) = next {
                 let remaining = r.remaining(epoch());
                 let text = format!(
                     "{}  ·  {}",
@@ -355,7 +593,8 @@ impl Host {
                 0 => self.tr("Muzică", "Music"),
                 1 => "Pomodoro",
                 2 => self.tr("Apă", "Water"),
-                _ => self.tr("Remindere", "Reminders"),
+                3 => self.tr("Remindere", "Reminders"),
+                _ => self.tr("Ziua ta", "Your day"),
             };
             self.text(
                 buffer,
@@ -367,6 +606,48 @@ impl Host {
             );
             if self.page == 3 {
                 self.paint_reminders(buffer);
+            } else if self.page == 4 {
+                match self.store.daily_summary(&store::local_day(epoch())) {
+                    Ok(stats) => {
+                        self.text(
+                            buffer,
+                            &format!(
+                                "{} min focus · {} sesiuni",
+                                stats.focus_seconds / 60,
+                                stats.focus_sessions
+                            ),
+                            52,
+                            85,
+                            22,
+                            rgb(184, 209, 255),
+                        );
+                        self.text(
+                            buffer,
+                            &format!(
+                                "{} sarcini · {} remindere · {} pahare",
+                                stats.todos_completed,
+                                stats.reminders_completed,
+                                stats.water_glasses
+                            ),
+                            92,
+                            120,
+                            16,
+                            rgb(220, 220, 235),
+                        );
+                    }
+                    Err(e) => self.text(buffer, &e.to_string(), 60, 120, 12, rgb(255, 120, 120)),
+                }
+                self.text(
+                    buffer,
+                    self.tr(
+                        "Activitate locală · Fiecare zi are ritmul ei",
+                        "Local activity · Every day has its own rhythm",
+                    ),
+                    125,
+                    153,
+                    11,
+                    rgb(154, 154, 160),
+                );
             } else {
                 let (body, buttons) = match self.page {
                     0 => (
@@ -436,6 +717,19 @@ impl Host {
         DeleteObject(bitmap);
         DeleteDC(buffer);
         EndPaint(hwnd, &ps);
+    }
+    unsafe fn show_summary(&mut self, hwnd: HWND) -> mira_core::Result<()> {
+        self.summary_banner = Some((
+            self.store.daily_summary(&store::local_day(epoch()))?,
+            Instant::now(),
+        ));
+        self.layout(hwnd);
+        Ok(())
+    }
+    fn save_settings(&mut self) {
+        if let Err(e) = store::config_path().and_then(|path| self.config.save(&path)) {
+            self.error = Some(e.to_string());
+        }
     }
     unsafe fn reload_reminders(&mut self, hwnd: HWND) {
         match self.store.reminders() {
@@ -604,6 +898,95 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_CONTEXTMENU => {
             let menu = CreatePopupMenu();
+            let studio = CreatePopupMenu();
+            for (i, name) in [
+                "blink",
+                "wink",
+                "happy",
+                "surprised",
+                "excited",
+                "sleepy",
+                "music",
+                "focus",
+                "reminder",
+            ]
+            .iter()
+            .enumerate()
+            {
+                AppendMenuW(studio, MF_STRING, 200 + i, wide(name).as_ptr());
+            }
+            AppendMenuW(
+                menu,
+                MF_POPUP,
+                studio as usize,
+                wide("Studio mascotă").as_ptr(),
+            );
+            HOST.with(|state| {
+                if let Some(s) = state.borrow().as_ref() {
+                    for (i, (key, label)) in [
+                        ("classic", "Clasic"),
+                        ("robot", "Roboțel"),
+                        ("cat", "Pisică"),
+                        ("pixel", "Pixel"),
+                    ]
+                    .iter()
+                    .enumerate()
+                    {
+                        AppendMenuW(
+                            menu,
+                            MF_STRING
+                                | if s.config.mascot_theme == *key {
+                                    MF_CHECKED
+                                } else {
+                                    0
+                                },
+                            100 + i,
+                            wide(&format!("Temă: {label}")).as_ptr(),
+                        );
+                    }
+                    AppendMenuW(
+                        menu,
+                        MF_STRING
+                            | if s.config.mascot_contextual {
+                                MF_CHECKED
+                            } else {
+                                0
+                            },
+                        110,
+                        wide("Personalitate contextuală").as_ptr(),
+                    );
+                    for (id, value, label) in [
+                        (120, 0., "Mișcare: oprită"),
+                        (121, 0.5, "Mișcare: discretă"),
+                        (122, 1., "Mișcare: completă"),
+                    ] {
+                        AppendMenuW(
+                            menu,
+                            MF_STRING
+                                | if (s.config.motion_intensity - value).abs() < 0.1 {
+                                    MF_CHECKED
+                                } else {
+                                    0
+                                },
+                            id,
+                            wide(label).as_ptr(),
+                        );
+                    }
+                    AppendMenuW(menu, MF_STRING, 130, wide("Rezumatul zilei").as_ptr());
+                    AppendMenuW(
+                        menu,
+                        MF_STRING
+                            | if s.config.daily_summary_enabled {
+                                MF_CHECKED
+                            } else {
+                                0
+                            },
+                        131,
+                        wide("Rezumat automat la ora din config.toml").as_ptr(),
+                    );
+                }
+            });
+            AppendMenuW(menu, MF_SEPARATOR, 0, null());
             AppendMenuW(menu, MF_STRING, 1, wide("Mira — Exit / Ieșire").as_ptr());
             let mut pt = std::mem::zeroed();
             GetCursorPos(&mut pt);
@@ -620,6 +1003,50 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             DestroyMenu(menu);
             if choice == 1 {
                 DestroyWindow(hwnd);
+            } else {
+                HOST.with(|state| {
+                    if let Some(s) = state.borrow_mut().as_mut() {
+                        match choice {
+                            100..=103 => {
+                                s.config.mascot_theme = ["classic", "robot", "cat", "pixel"]
+                                    [(choice - 100) as usize]
+                                    .into()
+                            }
+                            110 => s.config.mascot_contextual = !s.config.mascot_contextual,
+                            120..=122 => {
+                                s.config.motion_intensity = [0., 0.5, 1.][(choice - 120) as usize]
+                            }
+                            130 => {
+                                s.page = 4;
+                                s.open = true;
+                                s.layout(hwnd);
+                            }
+                            131 => s.config.daily_summary_enabled = !s.config.daily_summary_enabled,
+                            200..=208 => {
+                                s.preview = Some((
+                                    [
+                                        "blink",
+                                        "wink",
+                                        "happy",
+                                        "surprised",
+                                        "excited",
+                                        "sleepy",
+                                        "music",
+                                        "focus",
+                                        "reminder",
+                                    ][(choice - 200) as usize]
+                                        .into(),
+                                    Instant::now(),
+                                ))
+                            }
+                            _ => {}
+                        }
+                        if choice != 0 {
+                            s.save_settings();
+                            InvalidateRect(hwnd, null(), 0);
+                        }
+                    }
+                });
             }
             0
         }
@@ -791,7 +1218,7 @@ unsafe extern "system" fn editor_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
             control(
                 hwnd,
                 "STATIC",
-                "Ce vrei să-ți amintești? / Reminder title",
+                "Titlu sau: Raport mâine la 10 / every Monday at 9",
                 100,
                 (16, 14, 395, 20),
                 0,
@@ -808,7 +1235,7 @@ unsafe extern "system" fn editor_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
             control(
                 hwnd,
                 "STATIC",
-                "În câte minute? / Minutes from now",
+                "Minute (doar pentru titluri simple) / Minutes",
                 102,
                 (16, 76, 300, 20),
                 0,
@@ -837,9 +1264,29 @@ unsafe extern "system" fn editor_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 (295, 140, 115, 28),
                 WS_TABSTOP,
             );
+            control(
+                hwnd,
+                "STATIC",
+                "Exemplu: Sună-l pe Alex peste 20 de minute",
+                104,
+                (16, 174, 395, 36),
+                0,
+            );
             0
         }
         WM_COMMAND => {
+            if ((wp >> 16) & 0xffff) as u32 == EN_CHANGE && (wp & 0xffff) == 101 {
+                let title = edit_text(hwnd, 101);
+                let feedback = if mira_core::natural::looks_natural(&title) {
+                    match mira_core::natural::parse_local(&title, epoch()) {
+                        Ok(d) => format!("{} · {}", d.title, d.description),
+                        Err(e) => e.to_string(),
+                    }
+                } else {
+                    "Minutele de mai sus se folosesc pentru titluri simple".into()
+                };
+                SetWindowTextW(GetDlgItem(hwnd, 104), wide(&feedback).as_ptr());
+            }
             match wp & 0xffff {
                 1 => {
                     let title = edit_text(hwnd, 101);
@@ -847,14 +1294,19 @@ unsafe extern "system" fn editor_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                         .parse::<i64>()
                         .ok()
                         .filter(|n| (1..=527040).contains(n));
-                    let result = if let Some(minutes) = minutes {
+                    let natural = mira_core::natural::looks_natural(&title);
+                    let result = if natural || minutes.is_some() {
+                        let minutes = minutes.unwrap_or(15);
                         HOST.with(|state| {
                             let mut state = state.borrow_mut();
                             match state.as_mut() {
                                 Some(s) => {
                                     let now = epoch();
-                                    let result =
-                                        s.store.add_reminder(&title, now + minutes * 60, now);
+                                    let result = if mira_core::natural::looks_natural(&title) {
+                                        s.store.add_natural_reminder(&title, now)
+                                    } else {
+                                        s.store.add_reminder(&title, now + minutes * 60, now)
+                                    };
                                     if result.is_ok() {
                                         s.reload_reminders(GetWindow(hwnd, GW_OWNER));
                                     }
@@ -894,5 +1346,16 @@ unsafe extern "system" fn editor_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
             0
         }
         _ => DefWindowProcW(hwnd, msg, wp, lp),
+    }
+}
+
+fn parse_clock(text: &str) -> Option<(u16, u16)> {
+    let (h, m) = text.split_once(':')?;
+    let h = h.parse().ok()?;
+    let m = m.parse().ok()?;
+    if h < 24 && m < 60 {
+        Some((h, m))
+    } else {
+        None
     }
 }

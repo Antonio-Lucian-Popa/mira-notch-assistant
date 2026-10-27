@@ -34,7 +34,7 @@ const DEFAULTS = {
         lyricLine: {durationMs: 280},
         alertHoldMs: 2600,
     },
-    pages: ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo'],
+    pages: ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary'],
     sizing: {
         wideMonitorMinWidthPx: 2560,
         wideScaleFactor: 1.25,

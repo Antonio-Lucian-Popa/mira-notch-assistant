@@ -8,6 +8,8 @@ pub struct Reminder {
     pub due_epoch: i64,
     pub created_epoch: i64,
     pub notified: bool,
+    #[serde(default)]
+    pub recurrence: Option<crate::natural::Recurrence>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +78,7 @@ mod tests {
             due_epoch: 1000,
             created_epoch: 0,
             notified: false,
+            recurrence: None,
         };
         for (now, expected) in [
             (699, Urgency::Calm),

@@ -39,3 +39,9 @@ test('short suspend across midnight catches the previous day once', () => {
     assert.deepEqual(events.map(e=>e.type),['work-end']);
     assert.match(events[0].key,/2026-10-27/);
 });
+
+test('daily summary is independent of weekday-only work routines',()=>{
+ const events=routineEvents({...config,summaryEnabled:true,summaryTime:'21:00'},new Date(2026,9,31,21,0));
+ assert.deepEqual(events.map(e=>e.type),['summary']);
+ assert.deepEqual(routineEvents({...config,summaryEnabled:true,summaryTime:'21:00'},new Date(2026,9,31,21,0),{summary:events[0].key}),[]);
+});

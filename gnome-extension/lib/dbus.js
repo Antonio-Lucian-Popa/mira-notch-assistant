@@ -21,6 +21,7 @@ const IFACE = {
     todo: 'ro.novabytecode.Mira.Todo',
     shelf: 'ro.novabytecode.Mira.Shelf',
     reminders: 'ro.novabytecode.Mira.Reminders',
+    summary: 'ro.novabytecode.Mira.Summary',
 };
 
 export class MiraClient {
@@ -252,11 +253,22 @@ export class MiraClient {
     }
 
     getReminders(onOk, onErr = () => {}) {
-        this._callRet('reminders', 'GetItems', null, ret => {
-            onOk(ret.deepUnpack()[0].map(([id, text, due, created, notified]) => ({
-                id: Number(id), text, due: Number(due), created: Number(created), notified,
-            })));
+        this._callRet('reminders', 'GetDetails', null, ret => {
+            const items = JSON.parse(ret.deepUnpack()[0]);
+            onOk(items.map(r => ({...r, due: Number(r.due_epoch), created: Number(r.created_epoch)})));
         }, onErr);
+    }
+    previewNatural(input, onOk, onErr) {
+        this._callRet('reminders', 'PreviewNatural', new GLib.Variant('(s)', [input]), ret => onOk(JSON.parse(ret.deepUnpack()[0])), onErr);
+    }
+    reminderAddNatural(input, onOk, onErr) {
+        this._callRet('reminders', 'AddNatural', new GLib.Variant('(s)', [input]), onOk, onErr);
+    }
+    reminderComplete(id, due, onOk, onErr) {
+        this._callRet('reminders', 'CompleteOccurrence', new GLib.Variant('(xx)', [id, due]), onOk, onErr);
+    }
+    getSummary(onOk, onErr = () => {}) {
+        this._callRet('summary', 'GetToday', null, ret => onOk(JSON.parse(ret.deepUnpack()[0])), onErr);
     }
 
     reminderAdd(text, due, onOk, onErr) {

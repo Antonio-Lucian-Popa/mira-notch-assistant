@@ -9,6 +9,7 @@ import Gtk from 'gi://Gtk';
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {validTime} from './lib/routines.js';
+import {THEMES, EXPRESSIONS} from './lib/mascot.js';
 
 const BUS_NAME = 'ro.novabytecode.Mira';
 const OBJECT_PATH = '/ro/novabytecode/Mira';
@@ -125,6 +126,47 @@ export default class MiraPreferences extends ExtensionPreferences {
         const browserGroup = new Adw.PreferencesGroup({title: _('Muzică din browser'), description: _('Mira urmărește toate playerele MPRIS, inclusiv Brave, Chrome și Firefox.')});
         browserGroup.add(new Adw.ActionRow({title: _('Sesiuni private / Incognito'), subtitle: _('Browserul poate ascunde titlul și artistul. În pagina Lyrics poți introduce manual melodia pentru căutare pe LRCLIB.')}));
         page.add(browserGroup);
+
+        const summaryGroup = new Adw.PreferencesGroup({title: _('Rezumatul zilei'), description: _('Doar activitatea înregistrată de Mira: focus, sarcini, remindere și apă. Fără scoruri sau comparații.')});
+        page.add(summaryGroup);
+        const summaryOn = new Adw.SwitchRow({title: _('Arată rezumatul zilnic')});
+        settings.bind('daily-summary-enabled', summaryOn, 'active', Gio.SettingsBindFlags.DEFAULT);
+        summaryGroup.add(summaryOn);
+        const summaryTime = new Adw.EntryRow({title: _('Ora rezumatului (HH:MM)')});
+        summaryTime.text = settings.get_string('daily-summary-time');
+        summaryTime.connect('changed', row => {
+            const time = validTime(row.text);
+            row[time ? 'remove_css_class' : 'add_css_class']('error');
+            if (time) settings.set_string('daily-summary-time', time);
+        });
+        summaryGroup.add(summaryTime);
+        const summaryPreview = new Adw.ActionRow({title: _('Vezi rezumatul acum')});
+        const summaryButton = new Gtk.Button({label: _('Previzualizează'), valign: Gtk.Align.CENTER});
+        summaryButton.connect('clicked', () => settings.set_string('routine-preview', `summary:${Date.now()}`));
+        summaryPreview.add_suffix(summaryButton); summaryGroup.add(summaryPreview);
+
+        const studio = new Adw.PreferencesPage({title: _('Studio mascotă'), icon_name: 'applications-graphics-symbolic'});
+        window.add(studio);
+        const appearance = new Adw.PreferencesGroup({title: _('Teme și comportament'), description: _('Previzualizările rulează în notch, fără să modifice muzica sau timerul. Schimbările de temă și intensitate se salvează automat.')});
+        studio.add(appearance);
+        const themeNames = Object.keys(THEMES);
+        const themeRow = new Adw.ComboRow({title: _('Tema mascotei'), model: new Gtk.StringList({strings: themeNames.map(name => THEMES[name].label)})});
+        themeRow.selected = Math.max(0, themeNames.indexOf(settings.get_string('mascot-theme')));
+        themeRow.connect('notify::selected', row => settings.set_string('mascot-theme', themeNames[row.selected]));
+        appearance.add(themeRow);
+        const contextual = new Adw.SwitchRow({title: _('Personalitate contextuală'), subtitle: _('Muzică → ritm discret; focus → concentrare; seara → somnolență. Reminderele urgente au prioritate.')});
+        settings.bind('mascot-contextual', contextual, 'active', Gio.SettingsBindFlags.DEFAULT); appearance.add(contextual);
+        const motion = new Adw.SpinRow({title: _('Intensitatea animațiilor'), subtitle: _('0 = expresii statice, 1 = mișcare completă'), adjustment: new Gtk.Adjustment({lower: 0, upper: 1, step_increment: 0.1}), digits: 1});
+        settings.bind('motion-intensity', motion, 'value', Gio.SettingsBindFlags.DEFAULT); appearance.add(motion);
+        const examples = new Adw.PreferencesGroup({title: _('Biblioteca de expresii'), description: _('Alege o expresie și privește notch-ul. La intensitate zero, mișcările sunt dezactivate.')});
+        studio.add(examples);
+        const grid = new Gtk.Grid({column_spacing: 8, row_spacing: 8, column_homogeneous: true});
+        [...EXPRESSIONS, 'music', 'focus', 'evening', 'reminder'].forEach((name,index) => {
+            const button = new Gtk.Button({label: name});
+            button.connect('clicked', () => settings.set_string('mascot-preview', `${name}:${Date.now()}`));
+            grid.attach(button,index % 3,Math.floor(index / 3),1,1);
+        });
+        examples.add(grid);
 
         // --- Greeting ---
         const greetGroup = new Adw.PreferencesGroup({

@@ -77,6 +77,13 @@
     <key name="routine-delivered" type="a{ss}"><default>{}</default><summary>Last local date and schedule delivered per routine</summary></key>
     <key name="routine-preview" type="s"><default>''</default><summary>Preview routine event</summary></key>
 
+    <key name="mascot-theme" type="s"><choices><choice value="classic"/><choice value="robot"/><choice value="cat"/><choice value="pixel"/></choices><default>'classic'</default><summary>Native mascot appearance</summary></key>
+    <key name="mascot-contextual" type="b"><default>true</default><summary>React to music, focus and evening</summary></key>
+    <key name="motion-intensity" type="d"><range min="0.0" max="1.0"/><default>0.6</default><summary>Personality motion intensity; zero disables expressive movement</summary></key>
+    <key name="mascot-preview" type="s"><default>''</default><summary>Studio preview trigger</summary></key>
+    <key name="daily-summary-enabled" type="b"><default>true</default><summary>Show a daily activity summary</summary></key>
+    <key name="daily-summary-time" type="s"><default>'21:00'</default><summary>Local daily summary time</summary></key>
+
     <key name="eye-style" type="s">
       <default>'auto'</default>
       <summary>Eye animation style</summary>

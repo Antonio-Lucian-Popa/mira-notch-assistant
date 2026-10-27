@@ -1,5 +1,5 @@
 #ifndef MiraVersion
-  #define MiraVersion "0.4.0"
+  #define MiraVersion "0.5.0"
 #endif
 [Setup]
 AppId={{A7D45C2D-6D0E-4C4E-9B20-122C365E49E0}
@@ -15,6 +15,10 @@ OutputDir=Output
 OutputBaseFilename=mira_{#MiraVersion}_windows_x64_setup
 Compression=lzma2
 SolidCompression=yes
+#ifdef SignPath
+SignedUninstaller=yes
+SignedUninstallerDir=Output\uninstaller-cache
+#endif
 CloseApplications=yes
 UninstallDisplayIcon={app}\mira-win.exe
 

@@ -17,6 +17,7 @@ pub mod event;
 pub mod lrclib;
 pub mod lyrics;
 pub mod model;
+pub mod natural;
 pub mod pomodoro;
 pub mod reminder;
 pub mod source;

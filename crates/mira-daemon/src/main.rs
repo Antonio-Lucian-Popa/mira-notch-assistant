@@ -45,7 +45,7 @@ mod linux {
 
     use crate::dbus::{
         self, LyricsIface, MediaIface, PomodoroIface, PowerIface, RemindersIface, ServiceIface,
-        Shared, ShelfIface, SystemIface, TodoIface, WaterIface, BUS_NAME, PATH,
+        Shared, ShelfIface, SummaryIface, SystemIface, TodoIface, WaterIface, BUS_NAME, PATH,
     };
 
     pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -174,6 +174,14 @@ mod linux {
                 },
             )
             .await?;
+        server
+            .at(
+                PATH,
+                SummaryIface {
+                    shared: shared.clone(),
+                },
+            )
+            .await?;
         conn.request_name(BUS_NAME).await?;
         tracing::info!("mira-daemon serving {BUS_NAME} at {PATH}");
 
@@ -229,7 +237,23 @@ mod linux {
                 let mut tick = tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tick.tick().await;
-                    let result = shared.pomodoro.lock().await.tick();
+                    let (result, was_work) = {
+                        let mut engine = shared.pomodoro.lock().await;
+                        let before = engine.snapshot();
+                        (
+                            engine.tick(),
+                            before.running && before.phase == mira_core::model::PomodoroPhase::Work,
+                        )
+                    };
+                    if was_work {
+                        if let Err(e) = shared.store.lock().await.record_focus(
+                            dbus::now_epoch(),
+                            1,
+                            matches!(result, mira_core::pomodoro::TickResult::PhaseChanged(_)),
+                        ) {
+                            tracing::warn!("recording focus activity: {e}");
+                        }
+                    }
                     match result {
                         mira_core::pomodoro::TickResult::Idle => {}
                         mira_core::pomodoro::TickResult::Counted => {

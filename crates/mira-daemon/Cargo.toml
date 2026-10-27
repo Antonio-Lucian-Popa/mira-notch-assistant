@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 mira-core = { path = "../mira-core" }
 tracing = "0.1"
+serde_json = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 mira-platform-linux = { path = "../mira-platform-linux" }

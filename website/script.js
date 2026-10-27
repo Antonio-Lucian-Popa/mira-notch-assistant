@@ -128,6 +128,10 @@
     requestAnimationFrame(() => $('#routineEyes').classList.add('celebrate'));
   }));
 
+  $$('[data-mascot-theme]').forEach(button => button.addEventListener('click', () => {
+    if (big) big.dataset.theme = button.dataset.mascotTheme;
+  }));
+
   /* ---- mascot buttons ---- */
   const winkBtn = $('#btnWink');
   if (winkBtn && big) winkBtn.addEventListener('click', () => {
