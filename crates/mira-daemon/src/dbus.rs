@@ -82,7 +82,7 @@ pub fn now_epoch() -> i64 {
 /// A per-day key for the water log. Uses the UTC day number, so the counter
 /// resets at UTC midnight (good enough for phase 1 of the feature).
 pub fn today_key() -> String {
-    (now_epoch() / 86_400).to_string()
+    mira_core::store::local_day(now_epoch())
 }
 
 pub fn phase_str(p: PomodoroPhase) -> &'static str {
@@ -681,6 +681,60 @@ impl RemindersIface {
         Self::items_changed(&e).await.ok();
         Ok(id)
     }
+    async fn preview_natural(&self, input: String) -> zbus::fdo::Result<String> {
+        Ok(match mira_core::natural::parse_local(&input,now_epoch()) {
+            Ok(draft)=>serde_json::json!({"valid":true,"recognized":true,"draft":draft}),
+            Err(error)=>serde_json::json!({"valid":false,"recognized":mira_core::natural::looks_natural(&input),"error":error.to_string()}),
+        }.to_string())
+    }
+    async fn add_natural(
+        &self,
+        input: String,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<i64> {
+        let id = self
+            .shared
+            .store
+            .lock()
+            .await
+            .add_natural_reminder(&input, now_epoch())
+            .map_err(to_fdo)?;
+        Self::items_changed(&e).await.ok();
+        Ok(id)
+    }
+    async fn get_details(&self) -> zbus::fdo::Result<String> {
+        serde_json::to_string(&self.shared.store.lock().await.reminders().map_err(to_fdo)?)
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    }
+    async fn complete_occurrence(
+        &self,
+        id: i64,
+        expected_due: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .complete_occurrence(id, expected_due, now_epoch())
+            .map_err(to_fdo)?;
+        Self::items_changed(&e).await.ok();
+        Ok(())
+    }
+    async fn complete(
+        &self,
+        id: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .complete_reminder(id, now_epoch())
+            .map_err(to_fdo)?;
+        Self::items_changed(&e).await.ok();
+        Ok(())
+    }
     async fn remove(
         &self,
         id: i64,
@@ -714,6 +768,34 @@ impl RemindersIface {
     pub async fn items_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
     #[zbus(signal)]
     pub async fn due(emitter: &SignalEmitter<'_>, id: i64, text: &str) -> zbus::Result<()>;
+}
+
+// --- Daily summary ---------------------------------------------------------
+pub struct SummaryIface {
+    pub shared: Arc<Shared>,
+}
+#[zbus::interface(name = "ro.novabytecode.Mira.Summary")]
+impl SummaryIface {
+    async fn get_today(&self) -> zbus::fdo::Result<String> {
+        let summary = self
+            .shared
+            .store
+            .lock()
+            .await
+            .daily_summary(&today_key())
+            .map_err(to_fdo)?;
+        serde_json::to_string(&summary).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    }
+    async fn get_day(&self, day: String) -> zbus::fdo::Result<String> {
+        let summary = self
+            .shared
+            .store
+            .lock()
+            .await
+            .daily_summary(&day)
+            .map_err(to_fdo)?;
+        serde_json::to_string(&summary).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    }
 }
 
 // --- Shelf -----------------------------------------------------------------

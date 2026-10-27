@@ -5,7 +5,7 @@ screen. Mira shows your music, synced lyrics, timers, system notifications and a
 file shelf, then gets out of the way. It runs on **Windows 10/11** and
 **Ubuntu / GNOME (Wayland)**. Windows is currently a native preview with a smaller feature set.
 
-> **Status: v0.4.0 source update.** Linux has the daemon and GNOME extension. Windows has an
+> **Status: v0.5.0 source update.** Linux has the daemon and GNOME extension. Windows has an
 > initial native host with cursor-following eyes, a clock, media-key controls,
 > Pomodoro, a persistent daily water counter and standalone reminders. Windows feature parity is in progress.
 
@@ -121,11 +121,11 @@ To build on Windows:
 cargo build --release --locked -p mira-win
 .\target\release\mira-win.exe
 # Optional installer (Inno Setup 6 installed):
-iscc /DMiraVersion=0.4.0 packaging/windows/mira.iss
+iscc /DMiraVersion=0.5.0 packaging/windows/mira.iss
 ```
 
 Move the pointer anywhere on the desktop: the resting eyes follow it smoothly
-and blink. Hover to expand; click the title to cycle Music, Pomodoro, Water and Reminders.
+and blink. Hover to expand; click the title to cycle Music, Pomodoro, Water, Reminders and Your day.
 Click the actions below each page to control playback, start/pause/reset focus,
 or adjust water. In Reminders, use + New to enter a title and a delay in minutes; browse reminders with the arrows, snooze with +5 min or acknowledge with Done. Right-click for Exit. Water is stored in `%APPDATA%\Mira\mira.db`;
 settings, including `language = "ro"` or `"en"`, are read from `config.toml` in
@@ -211,6 +211,54 @@ timezone and daylight-saving changes. These routines require an active GNOME
 session with the extension enabled; pending banners wait until the notch is free.
 This settings UI is not yet part of the Windows preview.
 
+## Companion features (0.5.0)
+
+- **Contextual personality:** music brings subtle rhythmic movement, focus a
+  concentrated expression, evening a sleepy one. Urgent reminders take priority.
+  The music movement is decorative; Mira does not analyze microphone/audio data.
+- **Four native themes:** Classic, Robot, Cat (with slit pupils) and Pixel.
+  GNOME preferences → **Studio mascotă** selects a theme, contextual behavior,
+  motion intensity (0–1), any of 16 expressions and four context previews.
+  Studio previews wait while a reminder is urgent. Zero intensity disables
+  expressive movement and particles while leaving text/countdowns readable.
+- **Natural reminders, locally parsed:** `Sună-l pe Alex peste 20 de minute`,
+  `Call in one hour`, `Raport mâine la 10`, `Ședință în fiecare luni la 9`,
+  `Pauză every day at 13:00`. A preview shows the parsed title/time before saving.
+  This is a documented deterministic grammar, not arbitrary-language AI.
+  Invalid/past times produce feedback instead of silently choosing a default.
+- **Recurring reminders:** daily and weekly rules survive restarts. ✓ completes
+  the displayed occurrence and advances to the next future local-calendar slot;
+  × deletes the series. Snooze keeps the recurrence. Duplicate confirmations
+  cannot skip the next occurrence. DST gaps skip nonexistent recurring slots;
+  one-off nonexistent local times are rejected. Ambiguous times use the earlier
+  occurrence. Missed occurrences are not replayed as a notification storm.
+- **Your day:** a separate page shows recorded focus minutes/sessions, completed
+  tasks, confirmed reminders and water. The automatic summary has its own local
+  time (default 21:00), also enriches the work-end goodbye, and uses persisted
+  real activity. It does not invent history from before this upgrade. Water keys
+  from the older Linux UTC-day format migrate to local calendar dates.
+
+Windows preview includes the shared natural parser, recurrence and activity
+storage, a Your day page and automatic summary. Its right-click menu offers the
+four themes, contextual behavior, three motion levels and a native expression
+studio. WinRT media events drive music context without polling. The summary time
+is read from `daily_summary_time = "21:00"` in `%APPDATA%\Mira\config.toml`;
+theme/intensity changes made in the menu save there too. Windows task counts stay
+zero until a Windows task UI is implemented. Browser metadata/lyrics parity is
+still pending; the media event watcher currently supplies playback state only.
+The Windows build is cross-compiled here and requires real Windows UI testing.
+
+## Windows signing
+
+The release pipeline is prepared for **SignPath Foundation**, including the
+application, Inno uninstaller and final setup signature, publisher/timestamp
+checks, and an explicit `windows-signing-status.json` report. See the complete
+[owner activation guide](packaging/windows/SIGNING.md). **No SignPath account has
+been configured or approval obtained by this change; current local executables
+are unsigned.** Once signing is enabled, failures block publishing instead of
+falling back to unsigned output. A valid signature does not guarantee immediate
+SmartScreen reputation for a new app. No security setting needs to be disabled.
+
 ## Roadmap
 
 **Phase 1 (current):** core → Windows host (notch window, GSMTC media, LRCLIB
@@ -237,6 +285,7 @@ cargo test --workspace --locked
 cargo test -p mira-core --test lrclib_http -- --ignored
 MIRA_TEST_PRIVATE_BUS=1 dbus-run-session -- cargo test -p mira-platform-linux --test mpris_sessions
 node gnome-extension/tests/routines.test.mjs
+node gnome-extension/tests/mascot.test.mjs
 node gnome-extension/tests/reminders.test.mjs
 node gnome-extension/tests/gaze.test.mjs
 glib-compile-schemas --strict gnome-extension/schemas

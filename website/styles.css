@@ -314,3 +314,7 @@ button.pill { color:inherit; cursor:pointer; font:inherit; font-size:11px; }
 @keyframes reminderPulse { 50%{opacity:.55} }
 @media(max-width:560px) { .tabs { flex-wrap:wrap; } .m-reminders{grid-template-columns:1fr;gap:14px} .routine-banner{padding:20px;gap:15px} }
 @media(prefers-reduced-motion:reduce) { .demo-eyes i,.reminder-count {animation:none!important} }
+#bigEyes[data-theme="robot"] i { border-radius:4px;background:#76f5bf; }
+#bigEyes[data-theme="cat"] i { background:#ffcf77;position:relative;border-radius:60% 20% 60% 20%; }
+#bigEyes[data-theme="cat"] i::after { content:"";position:absolute;inset:20% 40%;background:#221b12;border-radius:50%; }
+#bigEyes[data-theme="pixel"] i { border-radius:0;background:#c5a0ff; }

@@ -128,9 +128,9 @@
     <article class="card reveal"><div class="ic ic-water">💧</div><h3>Water reminder</h3><p>Track your intake with a live hourly chart and a goal meter. One tap to log a glass.</p></article>
     <article class="card reveal"><div class="ic ic-todo">✓</div><h3>To-dos</h3><p>Quick tasks with a “done today” counter and timed reminders that pop in the notch.</p></article>
     <article class="card reveal"><div class="ic ic-shelf">▤</div><h3>File shelf</h3><p>Stash files to grab later. Paste them in, or send from your file manager with <code>mira-add</code>.</p></article>
-    <article class="card reveal"><div class="ic ic-eyes">👀</div><h3>A living mascot</h3><p>Resting eyes that blink, glance, follow your cursor, wink, go sleepy — and burst into hearts.</p></article>
+    <article class="card reveal"><div class="ic ic-eyes">👀</div><h3>A contextual companion</h3><p>Music, focus and evening moods, four native themes and a motion slider. Preview expressions in the mascot studio; urgent reminders always take priority.</p></article>
     <article class="card reveal"><div class="ic ic-gift">🎉</div><h3>Greetings &amp; birthdays</h3><p>“Good morning, &lt;you&gt;” at your chosen hour — and confetti + “La mulți ani” on your birthday.</p></article>
-    <article class="card reveal"><div class="ic ic-reminders">◷</div><h3>Reminders with a pulse</h3><p>A separate reminder page, a live countdown beside the eyes, amber anticipation and coral agitation as the deadline approaches. Snooze or mark done.</p></article>
+    <article class="card reveal"><div class="ic ic-reminders">◷</div><h3>Say it naturally</h3><p>“Call Alex in 20 minutes” or “Raport mâine la 10”. Local parsing, daily/weekly recurrence, a live countdown and urgency-aware eyes. Preview the time, snooze or mark done.</p></article>
     <article class="card reveal"><div class="ic ic-routine">☀</div><h3>Your daily rhythm</h3><p>Set lunch and end-of-work hours in GNOME settings. A warm lunch greeting, a gentle heads-up and an animated goodbye — with weekday control.</p></article>
     <article class="card reveal"><div class="ic ic-bolt">⚡</div><h3>Feather-light</h3><p>No Electron, no webview. A tiny Rust daemon and a native shell UI. Designed for a small footprint; CPU and RAM depend on active features.</p></article>
   </div>
@@ -140,7 +140,7 @@
 <section id="screens" class="section">
   <div class="section-head reveal">
     <span class="eyebrow">Take a look</span>
-    <h2>Seven pages. <span class="grad">One swipe away.</span></h2>
+    <h2>Eight pages. <span class="grad">One swipe away.</span></h2>
     <p>Explore the GNOME experience below. Windows preview includes eyes, media-key controls, focus, water and reminders; full feature parity is still in progress.</p>
   </div>
 
@@ -153,6 +153,7 @@
       <button class="tab" data-screen="water" role="tab">Water</button>
       <button class="tab" data-screen="todo" role="tab">To-do</button>
       <button class="tab" data-screen="shelf" role="tab">Shelf</button>
+      <button class="tab" data-screen="summary" role="tab">Your day</button>
     </div>
 
     <div class="stage">
@@ -175,7 +176,11 @@
           <div><span class="eyebrow">UP NEXT</span><div class="reminder-count" id="reminderDemoCount">00:58</div><b>Call Alex</b><div class="m-bar"><span id="reminderDemoBar" style="width:19%"></span></div></div>
           <div class="reminder-demo-right"><div class="demo-eyes" aria-hidden="true"><i></i><i></i></div><p id="reminderDemoMood">Under a minute. Mira gets a little restless.</p><div class="pills"><button class="pill" data-mood="calm">Calm</button><button class="pill" data-mood="soon">5 min</button><button class="pill" data-mood="urgent">1 min</button><button class="pill" data-mood="due">Due</button></div></div>
         </div>
-        <p class="illustration-note">Interactive demonstration. Your saved reminders stay in the app.</p>
+        <p class="illustration-note">Interactive demonstration. Your saved reminders stay in the app. Natural input also supports daily and weekly schedules.</p>
+      </div>
+      <div class="mock" data-screen="summary">
+        <div class="m-head"><b>Your day</b><span class="ring"></span><span>Local activity, at your pace</span></div>
+        <div class="m-reminders"><div><span class="eyebrow">EXAMPLE SUMMARY</span><div class="reminder-count">50 min</div><b>2 focus sessions</b></div><div><p>3 tasks · 2 reminders · 4 glasses</p><small>Illustration only. Mira shows your actual recorded activity.</small></div></div>
       </div>
       <!-- focus -->
       <div class="mock" data-screen="focus">
@@ -224,6 +229,7 @@
       <div class="chips">
         <span>Blink</span><span>Double-blink</span><span>Glance</span><span>Look around</span><span>Look up</span><span>Happy squint</span><span>Wink</span><span>Surprised</span><span>Excited</span><span>Sleepy</span><span>Dizzy</span><span>Love 💕</span><span>Hearts</span><span>Rainbow</span><span>Confetti 🎉</span>
       </div>
+      <div class="chips" aria-label="Mascot theme examples"><button class="pill" data-mascot-theme="classic">Classic</button><button class="pill" data-mascot-theme="robot">Robot</button><button class="pill" data-mascot-theme="cat">Cat</button><button class="pill" data-mascot-theme="pixel">Pixel</button></div>
       <div class="mascot-actions">
         <button class="btn btn-ghost" id="btnWink">Make it wink</button>
         <button class="btn btn-primary" id="btnConfetti">🎉 Throw confetti</button>

@@ -60,6 +60,7 @@ jobs:
           cargo_ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF#refs/tags/v}"
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main
             test "$version" = "$cargo_ver"
             echo "version=$version" >> "$GITHUB_OUTPUT"
             echo "tag=v$version" >> "$GITHUB_OUTPUT"
@@ -101,6 +102,7 @@ jobs:
           node gnome-extension/tests/gaze.test.mjs
           node gnome-extension/tests/reminders.test.mjs
           node gnome-extension/tests/routines.test.mjs
+          node gnome-extension/tests/mascot.test.mjs
           MIRA_TEST_PRIVATE_BUS=1 dbus-run-session -- cargo test -p mira-platform-linux --test mpris_sessions --locked
           cargo build --locked -p mira-daemon
           dbus-run-session -- python3 crates/mira-daemon/tests/reminders_dbus.py
@@ -116,6 +118,9 @@ jobs:
 
   # Build the native Windows host and its per-user installer.
   build-windows:
+    permissions:
+      contents: read
+      actions: read
     runs-on: windows-latest
     needs: version
     if: ${{ needs.version.outputs.has_windows == 'true' }}
@@ -127,21 +132,107 @@ jobs:
         env:
           MIRA_VERSION: ${{ needs.version.outputs.version }}
         run: cargo build --release --locked -p mira-win
+      - name: Check SignPath configuration
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_POLICY_SLUG: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          SIGNPATH_CERTIFICATE_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
+        run: |
+          foreach ($name in @('SIGNPATH_API_TOKEN','SIGNPATH_ORGANIZATION_ID','SIGNPATH_PROJECT_SLUG','SIGNPATH_POLICY_SLUG','SIGNPATH_CERTIFICATE_SUBJECT')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing signing configuration: $name" }
+          }
+      - name: Prepare application and uninstaller for signing
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        shell: pwsh
+        run: ./packaging/windows/prepare-signing.ps1 -Version '${{ needs.version.outputs.version }}'
+      - name: Upload unsigned components
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        id: unsigned-components
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-components
+          path: packaging/windows/Output/unsigned-components/*
+          if-no-files-found: error
+      - name: Sign application and uninstaller with SignPath
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: mira-components
+          github-artifact-id: ${{ steps.unsigned-components.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-components
+      - name: Verify signed components and restore Inno cache
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        shell: pwsh
+        env:
+          EXPECTED_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
+        run: |
+          ./packaging/windows/verify-signatures.ps1 -Paths @('signed-components/mira-win.exe','signed-components/mira-uninstaller.exe') -ExpectedSubject $env:EXPECTED_SUBJECT
+          $manifest = Get-Content packaging/windows/Output/uninstaller-manifest.json -Raw | ConvertFrom-Json
+          Copy-Item signed-components/mira-uninstaller.exe $manifest.uninstallerCachePath -Force
+          Copy-Item signed-components/mira-win.exe target/release/mira-win.exe -Force
       - name: Build the per-user installer
         shell: pwsh
+        env:
+          SIGNPATH_ENABLED: ${{ vars.SIGNPATH_ENABLED }}
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMiraVersion=${{ needs.version.outputs.version }}" packaging/windows/mira.iss
+          $arguments = @('/DMiraVersion=${{ needs.version.outputs.version }}')
+          if ($env:SIGNPATH_ENABLED -eq 'true') { $arguments += '/DSignPath' }
+          $arguments += 'packaging/windows/mira.iss'
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" @arguments
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Collect the .exe
-        shell: bash
+          New-Item -ItemType Directory -Force unsigned-installer | Out-Null
+          $setup = @(Get-ChildItem packaging/windows/Output/*_setup.exe)
+          if ($setup.Count -ne 1) { throw 'Expected exactly one installer.' }
+          Copy-Item $setup[0].FullName unsigned-installer/setup.exe
+      - name: Upload unsigned installer
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-installer
+          path: unsigned-installer/setup.exe
+          if-no-files-found: error
+      - name: Sign installer with SignPath
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: mira-installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-installer
+      - name: Collect verified Windows artifacts
+        shell: pwsh
+        env:
+          SIGNPATH_ENABLED: ${{ vars.SIGNPATH_ENABLED }}
+          EXPECTED_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
         run: |
-          mkdir -p dist
-          cp target/release/mira-win.exe dist/
-          cp packaging/windows/Output/*.exe dist/
+          New-Item -ItemType Directory -Force dist | Out-Null
+          if ($env:SIGNPATH_ENABLED -eq 'true') {
+            ./packaging/windows/verify-signatures.ps1 -Paths @('target/release/mira-win.exe','signed-installer/setup.exe') -ExpectedSubject $env:EXPECTED_SUBJECT
+            Copy-Item signed-installer/setup.exe 'dist/mira_${{ needs.version.outputs.version }}_windows_x64_setup.exe'
+            @{ signed = $true; publisher = $env:EXPECTED_SUBJECT; provider = 'SignPath' } | ConvertTo-Json | Set-Content dist/windows-signing-status.json
+          } else {
+            Copy-Item unsigned-installer/setup.exe 'dist/mira_${{ needs.version.outputs.version }}_windows_x64_setup.exe'
+            @{ signed = $false; reason = 'SignPath not activated; development artifacts only' } | ConvertTo-Json | Set-Content dist/windows-signing-status.json
+          }
+          Copy-Item target/release/mira-win.exe dist/mira-win.exe
       - uses: actions/upload-artifact@v4
         with:
           name: mira-windows
-          path: dist/*.exe
+          path: dist/*
           if-no-files-found: error
 
   release:

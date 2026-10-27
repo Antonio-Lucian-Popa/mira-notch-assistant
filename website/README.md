@@ -47,7 +47,7 @@ Open <https://app.netlify.com/drop> and drop the `website/` folder. Done.
 
 ## Current presentation
 
-The site now covers seven GNOME pages, the standalone countdown reminder demo,
+The site now covers eight GNOME pages, the standalone countdown reminder demo,
 manual lyric lookup for browser/private-session metadata, and interactive lunch /
 end-of-work greeting examples. It distinguishes the Windows preview feature set
 from GNOME and links to actual GitHub Releases rather than promising parity.
@@ -55,3 +55,5 @@ Demo times and tracks are examples; the site does not create real reminders,
 inspect playback, or send lyric queries. Runtime/private-browser limitations are
 explained in the FAQ. Verify the tabs, urgency buttons, routine buttons, keyboard
 navigation, mobile wrapping and reduced-motion mode when changing the demos.
+
+Companion update: four theme examples, contextual moods, local natural-language and recurring reminders, a real-activity summary page, and the separate owner-controlled SignPath signing setup. Web summary numbers are labeled examples.

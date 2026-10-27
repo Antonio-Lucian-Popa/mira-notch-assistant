@@ -35,15 +35,17 @@ test('countdown recomputes after resume instead of accumulating timer drift', ()
     assert.equal(countdown(-1), '00:00');
 });
 
+const mascotSource = await readFile(new URL('../lib/mascot.js', import.meta.url), 'utf8');
+const {THEMES} = await import(`data:text/javascript,${encodeURIComponent(mascotSource)}`);
 const notch = await readFile(new URL('../lib/notch.js', import.meta.url), 'utf8');
-const methods = notch.slice(notch.indexOf('    onReminderDue(id, text) {'), notch.indexOf('    // --- reusable widgets ---'));
+const methods = notch.slice(notch.indexOf('    onReminderDue(id, text) {'), notch.indexOf('    _buildSummaryPage() {'));
 function fixture() {
     let notices = 0;
-    const h = new Function('Main', 'reminderState', 'Clutter', `return ({${methods.replace(/\n    }\n/g, '\n    },\n')}});`)(
-        {notify: () => notices++}, reminderState, {AnimationMode: {EASE_OUT_QUAD: 1, EASE_OUT_BACK: 2}});
+    const h = new Function('Main', 'reminderState', 'Clutter', 'THEMES', `return ({${methods.replace(/\n    }\n/g, '\n    },\n')}});`)(
+        {notify: () => notices++}, reminderState, {AnimationMode: {EASE_OUT_QUAD: 1, EASE_OUT_BACK: 2}}, THEMES);
     Object.assign(h, {
         _reminderNotified: new Set(), _reminders: [], _reminderRows: [], _reminderAlive: true,
-        _reminderTime: {}, _reminderName: {}, _reminderBar: {set() {}},
+        _settings: {get_string: () => 'classic', get_double: () => 0.6}, _reminderTime: {}, _reminderName: {}, _reminderBar: {set() {}},
         _reminderBadge: {}, _reminderFeedback: {}, _eyes: {_eyes: [{set_style() {}}, {set_style() {}}]},
     });
     return {h, notices: () => notices};

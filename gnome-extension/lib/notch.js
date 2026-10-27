@@ -22,8 +22,9 @@ import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.j
 import {gazeOffset} from './gaze.js';
 import {reminderState, parseWhen} from './reminders.js';
 import {routineEvents, validTime} from './routines.js';
+import {THEMES, EXPRESSIONS, contextMood, looksNatural, summaryText} from './mascot.js';
 
-const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo'];
+const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary'];
 
 // Titles shown at the left of the header per page. Music has none (its header
 // is just date/time). Two-tone titles use Pango markup.
@@ -32,6 +33,7 @@ const PAGE_TITLES = {
     lyrics: 'Lyrics',
     focus: 'Pomodoro',
     water: 'Water <span foreground="#3B9CFF">Reminder</span>',
+    summary: 'Ziua ta',
     reminders: 'Remind<span foreground="#FFB65C">ers</span>',
     shelf: 'Shelf',
     todo: 'Todo<span foreground="#2EE67A">List</span>',
@@ -107,6 +109,10 @@ class Notch extends St.Bin {
         this._reminderSubmitting = false;
         this._routineQueue = [];
         this._eyeAnimTimers = new Set();
+        this._naturalPreviewTimer = 0;
+        this._naturalPreviewGeneration = 0;
+        this._summaryFetch = 0;
+        this._bannerGeneration = 0;
 
         // Mascot eyes.
         this._eyeLifeTimer = 0;
@@ -242,6 +248,7 @@ class Notch extends St.Bin {
         this._buildShelfPage();
         this._buildTodoPage();
         this._buildRemindersPage();
+        this._buildSummaryPage();
         this.setPage(0);
     }
 
@@ -306,7 +313,9 @@ class Notch extends St.Bin {
         const eyeH = klass === 'mira-greet-eyes' ? 11 : 9;
         const eyeW = eyeH;
         for (let i = 0; i < 2; i++) {
-            const eye = new St.Widget({style_class: klass === 'mira-greet-eyes' ? 'mira-eye mira-eye-big' : 'mira-eye'});
+            const eye = new St.Widget({style_class: klass === 'mira-greet-eyes' ? 'mira-eye mira-eye-big' : 'mira-eye', layout_manager: new Clutter.BinLayout()});
+            eye._catPupil = new St.Widget({style_class: 'mira-cat-pupil', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER});
+            eye.add_child(eye._catPupil);
             eye.set_pivot_point(0.5, 0.5);
             eye.set_size(eyeW, eyeH);
             eye._baseH = eyeH;
@@ -314,6 +323,7 @@ class Notch extends St.Bin {
             box._eyes.push(eye);
             box.add_child(eye);
         }
+        this._themeEyes(box._eyes, klass === 'mira-greet-eyes');
         return box;
     }
 
@@ -664,9 +674,10 @@ class Notch extends St.Bin {
         hero.add_child(this._reminderBar.actor);
         const right = new St.BoxLayout({vertical: true, style_class: 'mira-reminder-right', x_expand: true});
         const form = new St.BoxLayout({style_class: 'mira-reminder-form'});
-        this._reminderTitleEntry = new St.Entry({hint_text: 'Ce vrei să-ți amintești?', style_class: 'mira-reminder-entry', can_focus: true, x_expand: true});
+        this._reminderTitleEntry = new St.Entry({hint_text: 'Sună-l pe Alex peste 20 de minute', style_class: 'mira-reminder-entry', can_focus: true, x_expand: true});
         this._reminderWhenEntry = new St.Entry({text: '15m', hint_text: '15m / 14:30', style_class: 'mira-reminder-when', can_focus: true});
-        this._reminderTitleEntry.clutter_text.set_max_length(200);
+        this._reminderTitleEntry.clutter_text.set_max_length(400);
+        this._reminderTitleEntry.clutter_text.connect('text-changed', () => this._previewNatural());
         this._reminderWhenEntry.clutter_text.set_max_length(12);
         this._reminderAdd = this._iconButton('list-add-symbolic', () => this._addReminder());
         this._reminderAdd.accessible_name = 'Adaugă reminder';
@@ -693,32 +704,48 @@ class Notch extends St.Bin {
         this._pageArea.add_child(page);
     }
 
+    _previewNatural() {
+        if (this._naturalPreviewTimer) GLib.source_remove(this._naturalPreviewTimer);
+        this._naturalPreviewTimer = 0;
+        const generation = ++this._naturalPreviewGeneration;
+        const input = this._reminderTitleEntry.get_text().trim();
+        this._reminderWhenEntry.reactive = !looksNatural(input);
+        if (!looksNatural(input)) {this._reminderFeedback.text = '15m / 14:30 sau scrie natural: «Raport mâine la 10»'; return;}
+        this._naturalPreviewTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 350, () => {
+            this._naturalPreviewTimer = 0;
+            this._client.previewNatural(input, response => {
+                if (!this._reminderAlive || generation !== this._naturalPreviewGeneration) return;
+                this._reminderFeedback.text = response.valid
+                    ? `${response.draft.title} · ${response.draft.description}` : response.error;
+            }, () => {if (this._reminderAlive && generation === this._naturalPreviewGeneration) this._reminderFeedback.text = 'Previzualizare indisponibilă · verifică daemonul';});
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
     _addReminder() {
-        if (this._reminderSubmitting)
-            return;
+        if (this._reminderSubmitting) return;
         const title = this._reminderTitleEntry.get_text().trim();
+        const natural = looksNatural(title);
         const due = parseWhen(this._reminderWhenEntry.get_text());
-        if (!title || Array.from(title).length > 200 || !due) {
-            this._reminderFeedback.text = 'Adaugă un titlu și un timp valid: 15m / 14:30';
-            return;
+        if (!title || (!natural && (Array.from(title).length > 200 || !due))) {
+            this._reminderFeedback.text = 'Adaugă un titlu și un timp: 15m / «Raport mâine la 10»'; return;
         }
         this._reminderSubmitting = true;
         this._reminderAdd.reactive = false;
-        this._client.reminderAdd(title, due, () => {
-            if (!this._reminderAlive)
-                return;
-            this._reminderSubmitting = false;
-            this._reminderAdd.reactive = true;
+        const ok = () => {
+            if (!this._reminderAlive) return;
+            this._reminderSubmitting = false; this._reminderAdd.reactive = true;
             this._reminderTitleEntry.set_text('');
             this._reminderFeedback.text = 'Salvat · Te anunț când se apropie';
             this.refreshReminders();
-        }, () => {
-            if (!this._reminderAlive)
-                return;
-            this._reminderSubmitting = false;
-            this._reminderAdd.reactive = true;
-            this._reminderFeedback.text = 'Nu s-a salvat. Verifică daemonul Mira.';
-        });
+        };
+        const fail = () => {
+            if (!this._reminderAlive) return;
+            this._reminderSubmitting = false; this._reminderAdd.reactive = true;
+            this._reminderFeedback.text = 'Nu s-a salvat. Verifică formularea, ora și daemonul.';
+        };
+        if (natural) this._client.reminderAddNatural(title, ok, fail);
+        else this._client.reminderAdd(title, due, ok, fail);
     }
 
     refreshReminders() {
@@ -731,14 +758,16 @@ class Notch extends St.Bin {
             this._reminderRows = [];
             for (const reminder of this._reminders) {
                 const row = new St.BoxLayout({style_class: 'mira-reminder-row', x_expand: true});
-                const name = new St.Label({text: reminder.text, style_class: 'mira-reminder-row-name', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+                const name = new St.Label({text: `${reminder.recurrence ? '↻ ' : ''}${reminder.text}`, style_class: 'mira-reminder-row-name', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
                 name.clutter_text.ellipsize = Pango.EllipsizeMode.END;
                 const time = new St.Label({style_class: 'mira-reminder-row-time', y_align: Clutter.ActorAlign.CENTER});
                 const snooze = this._smallButton('alarm-symbolic', () => this._reminderAction('snooze', reminder.id));
                 snooze.accessible_name = 'Amână cu 5 minute';
-                const done = this._smallButton('object-select-symbolic', () => this._reminderAction('remove', reminder.id));
+                const done = this._smallButton('object-select-symbolic', () => this._reminderAction('complete', reminder.id, reminder.due));
                 done.accessible_name = 'Confirmă / șterge reminder';
-                row.add_child(name); row.add_child(time); row.add_child(snooze); row.add_child(done);
+                const cancel = this._smallButton('window-close-symbolic', () => this._reminderAction('remove', reminder.id));
+                cancel.accessible_name = reminder.recurrence ? 'Șterge întreaga serie' : 'Șterge reminder';
+                row.add_child(name); row.add_child(time); row.add_child(snooze); row.add_child(done); row.add_child(cancel);
                 this._reminderList.add_child(row);
                 this._reminderRows.push({reminder, row, time});
             }
@@ -771,7 +800,7 @@ class Notch extends St.Bin {
         });
     }
 
-    _reminderAction(action, id) {
+    _reminderAction(action, id, due) {
         const ok = () => {
             if (!this._reminderAlive)
                 return;
@@ -787,6 +816,8 @@ class Notch extends St.Bin {
         };
         if (action === 'snooze')
             this._client.reminderSnooze(id, ok, fail);
+        else if (action === 'complete')
+            this._client.reminderComplete(id, due, ok, fail);
         else
             this._client.reminderRemove(id, ok, fail);
     }
@@ -812,7 +843,7 @@ class Notch extends St.Bin {
         this._reminderBadge.label = state ? `◷ ${state.remaining ? state.countdown : 'Acum'}` : '';
         this._reminderBadge.accessible_name = next ? `${next.text}, ${state.countdown}` : '';
         this._reminderBadge.style_class = `mira-reminder-badge ${this._reminderUrgency}`;
-        const color = {calm: '#8FB0FF', soon: '#FFB65C', urgent: '#FF7878', due: '#FF7878'}[this._reminderUrgency];
+        const color = {calm: (THEMES[this._settings.get_string('mascot-theme')] ?? THEMES.classic).color, soon: '#FFB65C', urgent: '#FF7878', due: '#FF7878'}[this._reminderUrgency];
         for (const eye of this._eyes._eyes)
             eye.set_style(next ? `background-color:${color}; box-shadow:0 0 7px 0 ${color};` : '');
         for (const {reminder, row, time} of this._reminderRows) {
@@ -822,7 +853,7 @@ class Notch extends St.Bin {
             if (item.urgency === 'due')
                 this.onReminderDue(reminder.id, reminder.text);
         }
-        if (!animate || this._open || !this._eyes.visible || !this.mapped || this._reminderUrgency === 'calm')
+        if (!animate || this._open || !this._eyes.visible || !this.mapped || this._reminderUrgency === 'calm' || this._settings.get_double('motion-intensity') <= 0)
             return;
         if (this._reminderUrgency === 'soon' && now % 3 !== 0)
             return;
@@ -831,8 +862,8 @@ class Notch extends St.Bin {
         this._eyes._eyes.forEach((eye, i) => {
             // Only transform the individual eyes; the parent keeps following
             // the mouse. No queued timeouts can outlive the actor.
-            eye.ease({translation_x: (i ? 1 : -1) * (urgent ? 2 : 0.6),
-                translation_y: urgent ? -2 : -1, scale_y: urgent ? 1.3 : 1.08,
+            eye.ease({translation_x: (i ? 1 : -1) * (urgent ? 2 : 0.6) * this._settings.get_double('motion-intensity'),
+                translation_y: (urgent ? -2 : -1) * this._settings.get_double('motion-intensity'), scale_y: 1 + (urgent ? 0.3 : 0.08) * this._settings.get_double('motion-intensity'),
                 duration: urgent ? 110 : 240, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                 onComplete: () => {
                     if (this._reminderAlive && generation === this._reminderGeneration)
@@ -844,6 +875,72 @@ class Notch extends St.Bin {
                 if (this._reminderAlive && generation === this._reminderGeneration)
                     this._reminderBadge.ease({opacity: 255, duration: 420});
             }});
+    }
+
+    _buildSummaryPage() {
+        const page = new St.BoxLayout({vertical: true, style_class: 'mira-page mira-summary', x_expand: true});
+        this._summaryStatus = new St.Label({text: 'Activitate înregistrată local · fără scoruri și presiune', style_class: 'mira-reminder-feedback'});
+        page.add_child(this._summaryStatus);
+        this._summaryValues = {};
+        const rows = [new St.BoxLayout({style_class: 'mira-summary-row', x_expand: true}), new St.BoxLayout({style_class: 'mira-summary-row', x_expand: true})];
+        [['focus_seconds','min focus'],['focus_sessions','sesiuni'],['todos_completed','sarcini'],['reminders_completed','remindere'],['water_glasses','pahare']].forEach(([key,label],index) => {
+            const card = new St.BoxLayout({vertical: true, style_class: 'mira-summary-card', x_expand: true});
+            const value = new St.Label({text: '—', style_class: 'mira-summary-number'});
+            this._summaryValues[key] = value;
+            card.add_child(value); card.add_child(new St.Label({text: label, style_class: 'mira-reminder-feedback'}));
+            rows[index < 3 ? 0 : 1].add_child(card);
+        });
+        rows.forEach(row => page.add_child(row));
+        page.add_child(this._pillButton('view-refresh-symbolic','Actualizează',()=>this.refreshSummary()));
+        this._summaryPage = page; this._pageArea.add_child(page);
+    }
+    refreshSummary() {
+        const fetch = ++this._summaryFetch;
+        this._client.getSummary(stats => {
+            if (!this._reminderAlive || fetch !== this._summaryFetch) return;
+            this._summaryStatus.text = `${stats.day} · Doar activitatea înregistrată de Mira`;
+            for (const [key,label] of Object.entries(this._summaryValues))
+                label.text = String(key === 'focus_seconds' ? Math.floor(stats[key] / 60) : stats[key]);
+        }, () => {if (this._reminderAlive && fetch === this._summaryFetch) this._summaryStatus.text = 'Rezumat indisponibil · verifică daemonul';});
+    }
+
+    _themeEyes(eyes, big = false) {
+        const key = this._settings.get_string('mascot-theme');
+        const theme = THEMES[key] ?? THEMES.classic;
+        for (const eye of eyes) {
+            for (const name of Object.keys(THEMES)) eye.remove_style_class_name(`theme-${name}`);
+            eye.add_style_class_name(`theme-${THEMES[key] ? key : 'classic'}`);
+            eye._baseW = theme.width + (big ? 2 : 0); eye._baseH = theme.height + (big ? 2 : 0);
+            eye.set_size(eye._baseW, eye._baseH);
+            eye._catPupil.visible = key === 'cat';
+            eye.clip_to_allocation = key === 'cat';
+        }
+    }
+
+    previewMascot(name) {
+        if (['urgent','due'].includes(this._reminderUrgency)) { Main.notify('Studio mascotă', 'Confirmă sau amână reminderul apropiat înainte de previzualizare.'); return; }
+        const contexts = ['music','focus','evening','reminder'];
+        if (!EXPRESSIONS.includes(name) && !contexts.includes(name)) return;
+        this.showGreeting(false);
+        this._clearGreetSeq();
+        this._wakeEyeActors(this._greetEyes._eyes);
+        this._greetLabel.text = `Studio · ${(THEMES[this._settings.get_string('mascot-theme')] ?? THEMES.classic).label}`;
+        this._routineDetail.text = `${name} · intensitate ${Math.round(this._settings.get_double('motion-intensity') * 100)}%`;
+        this._routineDetail.show();
+        if (contexts.includes(name)) this._contextEyes(this._greetEyes._eyes, name);
+        else this._eyeAnim(this._greetEyes._eyes, name);
+    }
+    _contextEyes(eyes, mood) {
+        const strength = this._settings.get_double('motion-intensity');
+        if (strength <= 0) return;
+        eyes.forEach((eye,index) => {
+            const target = mood === 'music' ? {translation_y: (index ? 2 : -2) * strength, scale_y: 1 + 0.15 * strength}
+                : mood === 'focus' ? {height: eye._baseH * (1 - 0.22 * strength)}
+                : mood === 'evening' ? {height: eye._baseH * (1 - 0.45 * strength)}
+                : {translation_x: (index ? 2 : -2) * strength, scale_y: 1 + 0.25 * strength};
+            eye.ease({...target, duration: mood === 'music' ? 180 : 400, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                onComplete: () => {if (this._reminderAlive) eye.ease({translation_x: 0, translation_y: 0, height: eye._baseH, scale_y: 1, duration: 650, mode: Clutter.AnimationMode.EASE_OUT_QUAD});}});
+        });
     }
 
     // --- reusable widgets ---
@@ -1079,6 +1176,7 @@ class Notch extends St.Bin {
     }
 
     open() {
+        this._bannerGeneration++;
         if (this._closeTimer) {
             GLib.source_remove(this._closeTimer);
             this._closeTimer = 0;
@@ -1163,6 +1261,7 @@ class Notch extends St.Bin {
         this._shelfPage.visible = name === 'shelf';
         this._todoPage.visible = name === 'todo';
         this._remindersPage.visible = name === 'reminders';
+        this._summaryPage.visible = name === 'summary';
     }
 
     _updateHeader() {
@@ -1188,6 +1287,9 @@ class Notch extends St.Bin {
         case 'water':
             this.refreshWater();
             this._waterChart.queue_repaint();
+            break;
+        case 'summary':
+            this.refreshSummary();
             break;
         case 'reminders':
             this.refreshReminders();
@@ -1517,6 +1619,7 @@ class Notch extends St.Bin {
 
     // --- alerts ---
     showAlert(type, arg) {
+        this._bannerGeneration++;
         this._open = false;
         this._stopHeaderViz();
         this._stopProgress();
@@ -1563,6 +1666,7 @@ class Notch extends St.Bin {
         const s = this._settings;
         const events = routineEvents({lunchEnabled: s.get_boolean('lunch-enabled'), lunchTime: s.get_string('lunch-time'),
             workEndEnabled: s.get_boolean('work-end-enabled'), workEndTime: s.get_string('work-end-time'),
+            summaryEnabled: s.get_boolean('daily-summary-enabled'), summaryTime: s.get_string('daily-summary-time'),
             leadMinutes: s.get_int('work-end-lead-minutes'), weekdaysOnly: s.get_boolean('routine-weekdays-only')}, new Date(), s.get_value('routine-delivered').deepUnpack());
         if (events.length) {
             const delivered = s.get_value('routine-delivered').deepUnpack();
@@ -1583,6 +1687,7 @@ class Notch extends St.Bin {
         return {
             lunch: ['Poftă bună! 🍽', `E timpul pentru pauza de prânz${suffix}. Ai grijă de tine!`],
             'work-soon': ['Mai e puțin ✨', `Programul se termină la ${this._settings.get_string('work-end-time')}. Încheie în ritmul tău${suffix}.`],
+            summary: ['Ziua ta, în câteva cifre ✨', 'Activitatea ta rămâne locală. Fiecare zi are ritmul ei.'],
             'work-end': ['Pe mâine! 👋', `Ai încheiat programul${suffix}. Mulțumesc pentru azi — bucură-te de timpul tău!`],
         }[type] ?? ['Mira', ''];
     }
@@ -1593,7 +1698,7 @@ class Notch extends St.Bin {
     }
 
     showRoutine(type) {
-        if (!['lunch', 'work-soon', 'work-end'].includes(type))
+        if (!['lunch', 'work-soon', 'work-end', 'summary'].includes(type))
             return;
         // Reuse the greeting lifecycle so every timeout and transition is
         // cancelled on replacement or extension disable.
@@ -1602,6 +1707,13 @@ class Notch extends St.Bin {
         this._greetLabel.text = title;
         this._routineDetail.text = message;
         this._routineDetail.show();
+        const banner = this._bannerGeneration;
+        if (type === 'summary' || (type === 'work-end' && this._settings.get_boolean('daily-summary-enabled'))) {
+            this._client.getSummary(stats => {
+                if (!this._reminderAlive || banner !== this._bannerGeneration || !this._greetBox.visible) return;
+                this._routineDetail.text = summaryText(stats);
+            });
+        }
         this._greetLabel.style_class = 'mira-greet-label mira-routine-label';
         this._greetLabel.clutter_text.single_line_mode = false;
         this._greetLabel.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
@@ -1654,6 +1766,7 @@ class Notch extends St.Bin {
     }
 
     showGreeting(birthday = false) {
+        this._bannerGeneration++;
         this._routineDetail.hide();
         this._open = false;
         this._stopHeaderViz();
@@ -1904,6 +2017,13 @@ class Notch extends St.Bin {
     _playRandomEyeAnim() {
         if (this._reminderUrgency !== 'calm')
             return;
+        const strength = this._settings.get_double('motion-intensity');
+        if (strength <= 0) return;
+        const mood = contextMood({urgency: this._reminderUrgency,
+            focus: this._client.pomodoro().running, playing: this._playing,
+            hour: new Date().getHours(), enabled: this._settings.get_boolean('mascot-contextual')});
+        if (mood !== 'idle') {this._contextEyes(this._eyes._eyes, mood); return;}
+        if (strength < 0.35) {this._blinkEyes(this._eyes._eyes); return;}
         const fixed = this._settings.get_string('eye-style');
         // With pointer-follow on, drop the plain look-around moves (the eyes
         // already track the mouse) and favour expressive ones.
@@ -1982,6 +2102,8 @@ class Notch extends St.Bin {
             return;
         const [l, r] = eyes;
         const base = l._baseH;
+        const strength = this._settings.get_double('motion-intensity');
+        if (strength <= 0) return;
         switch (name) {
         case 'blink':
             this._blinkEyes(eyes);
@@ -1994,27 +2116,27 @@ class Notch extends St.Bin {
             });
             break;
         case 'glanceL':
-            this._glanceEyes(eyes, -4);
+            this._glanceEyes(eyes, -4 * strength);
             break;
         case 'glanceR':
-            this._glanceEyes(eyes, 4);
+            this._glanceEyes(eyes, 4 * strength);
             break;
         case 'lookAround':
-            this._glanceEyes(eyes, -4);
+            this._glanceEyes(eyes, -4 * strength);
             this._eyeTimeout(560, () => {
-                this._glanceEyes(eyes, 4);
+                this._glanceEyes(eyes, 4 * strength);
                 return GLib.SOURCE_REMOVE;
             });
             break;
         case 'lookUp':
             for (const e of eyes)
-                e.ease({translation_y: -3, duration: 260, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                e.ease({translation_y: -3 * strength, duration: 260, mode: Clutter.AnimationMode.EASE_OUT_BACK,
                     onComplete: () => e.ease({translation_y: 0, duration: 420, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD})});
             break;
         case 'squintHappy':
             for (const e of eyes) {
                 e.add_style_class_name('happy');
-                e.ease({height: Math.max(3, base - 5), duration: 180, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                e.ease({height: Math.max(3, base - 5 * strength), duration: 180, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                     onComplete: () => this._eyeTimeout(520, () => {
                         e.remove_style_class_name('happy');
                         e.ease({height: base, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
@@ -2029,7 +2151,7 @@ class Notch extends St.Bin {
             break;
         case 'surprised':
             for (const e of eyes) {
-                e.ease({scale_x: 1.5, scale_y: 1.5, duration: 160, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                e.ease({scale_x: 1 + 0.5 * strength, scale_y: 1 + 0.5 * strength, duration: 160, mode: Clutter.AnimationMode.EASE_OUT_BACK,
                     onComplete: () => e.ease({scale_x: 1, scale_y: 1, duration: 320, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD})});
             }
             break;
@@ -2039,7 +2161,7 @@ class Notch extends St.Bin {
             break;
         case 'sleepy':
             for (const e of eyes) {
-                e.ease({height: Math.max(2, base - 6), duration: 600, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
+                e.ease({height: Math.max(2, base - 6 * strength), duration: 600, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
                     onComplete: () => this._eyeTimeout(500, () => {
                         e.ease({height: base, duration: 500, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
                         return GLib.SOURCE_REMOVE;
@@ -2052,7 +2174,7 @@ class Notch extends St.Bin {
         case 'love':
             for (const e of eyes) {
                 e.add_style_class_name('love');
-                e.ease({scale_x: 1.35, scale_y: 1.35, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                e.ease({scale_x: 1 + 0.35 * strength, scale_y: 1 + 0.35 * strength, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_BACK,
                     onComplete: () => e.ease({scale_x: 1, scale_y: 1, duration: 300, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
                         onComplete: () => e.remove_style_class_name('love')})});
             }
@@ -2060,7 +2182,7 @@ class Notch extends St.Bin {
         case 'hearts':
             for (const e of eyes) {
                 e.add_style_class_name('love');
-                e.ease({scale_x: 1.25, scale_y: 1.25, duration: 260, mode: Clutter.AnimationMode.EASE_OUT_BACK,
+                e.ease({scale_x: 1 + 0.25 * strength, scale_y: 1 + 0.25 * strength, duration: 260, mode: Clutter.AnimationMode.EASE_OUT_BACK,
                     onComplete: () => e.ease({scale_x: 1, scale_y: 1, duration: 360, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
                         onComplete: () => e.remove_style_class_name('love')})});
             }
@@ -2095,6 +2217,7 @@ class Notch extends St.Bin {
 
     // --- particle effects (hearts, confetti) over the notch ---
     _spawnParticles(kind, count) {
+        if (this._settings.get_double('motion-intensity') <= 0) return;
         const w = this.width || this._closed.w;
         const h = this.height || this._closed.h;
         for (let i = 0; i < count; i++) {
@@ -2188,7 +2311,7 @@ class Notch extends St.Bin {
             e.ease({translation_y: 0, duration: 140, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
             return;
         }
-        e.ease({translation_y: -4, duration: 130, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+        e.ease({translation_y: -4 * this._settings.get_double('motion-intensity'), duration: 130, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             onComplete: () => e.ease({translation_y: 0, duration: 130, mode: Clutter.AnimationMode.EASE_IN_QUAD,
                 onComplete: () => this._bounce(e, n + 1)})});
     }
@@ -2199,7 +2322,7 @@ class Notch extends St.Bin {
                 e.ease({translation_x: 0, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
             return;
         }
-        const off = n % 2 === 0 ? 4 : -4;
+        const off = (n % 2 === 0 ? 4 : -4) * this._settings.get_double('motion-intensity');
         for (const e of eyes)
             e.ease({translation_x: off, duration: 130, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
                 onComplete: () => { if (e === eyes[0]) this._dizzy(eyes, n + 1); }});
@@ -2222,6 +2345,8 @@ class Notch extends St.Bin {
 
     // --- settings / teardown ---
     applySettings() {
+        this._themeEyes(this._eyes._eyes);
+        this._themeEyes(this._greetEyes._eyes, true);
         this._computeSizes();
         const size = this._open ? this._hoverSize : this._closed;
         this.set_size(size.w, size.h);
@@ -2234,6 +2359,8 @@ class Notch extends St.Bin {
 
     _onDestroy() {
         this._reminderAlive = false;
+        this._summaryFetch++;
+        if (this._naturalPreviewTimer) GLib.source_remove(this._naturalPreviewTimer);
         for (const id of this._eyeAnimTimers) GLib.source_remove(id);
         this._eyeAnimTimers.clear();
         this._reminderBadge.remove_all_transitions();

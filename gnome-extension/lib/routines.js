@@ -10,13 +10,12 @@ export function routineEvents(config, now, delivered = {}) {
     for (const offset of [-1, 0, 1]) {
         const day = new Date(now);
         day.setDate(day.getDate() + offset);
-        if (config.weekdaysOnly && [0, 6].includes(day.getDay()))
-            continue;
+        const skipWorkday = config.weekdaysOnly && [0, 6].includes(day.getDay());
         const date = `${day.getFullYear()}-${day.getMonth() + 1}-${day.getDate()}`;
         const events = [];
-        for (const [enabled, time, type] of [[config.lunchEnabled, config.lunchTime, 'lunch'], [config.workEndEnabled, config.workEndTime, 'work-end']]) {
+        for (const [enabled, time, type] of [[config.lunchEnabled, config.lunchTime, 'lunch'], [config.workEndEnabled, config.workEndTime, 'work-end'], [config.summaryEnabled, config.summaryTime, 'summary']]) {
             const clock = validTime(time ?? '');
-            if (!enabled || !clock)
+            if (!enabled || !clock || (skipWorkday && type !== 'summary'))
                 continue;
             const [hh, mm] = clock.split(':').map(Number);
             const target = new Date(day);

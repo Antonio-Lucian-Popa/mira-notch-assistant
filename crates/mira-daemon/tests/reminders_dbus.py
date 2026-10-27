@@ -77,7 +77,24 @@ with tempfile.TemporaryDirectory(prefix='mira-reminders-') as tmp:
         call('Remove', 'x', id)
         assert call('GetItems') == []
         assert call('GetItems', iface=NAME + '.Todo')[0][0] == task
-        print('D-Bus reminders: validation, due signal, restart, snooze, acknowledgement and task isolation passed')
+        recurring = call('AddNatural', 's', 'Raport în fiecare zi la 9')
+        details = json.loads(call('GetDetails'))
+        original = next(r for r in details if r['id'] == recurring)
+        assert original['recurrence']['kind'] == 'daily'
+        call('CompleteOccurrence', 'xx', recurring, original['due_epoch'])
+        changed = json.loads(call('GetDetails'))[0]
+        assert changed['due_epoch'] > original['due_epoch']
+        call('CompleteOccurrence', 'xx', recurring, original['due_epoch'])
+        assert json.loads(call('GetDetails'))[0]['due_epoch'] == changed['due_epoch']
+        call('Toggle', 'x', task, iface=NAME + '.Todo')
+        summary = json.loads(call('GetToday', iface=NAME + '.Summary'))
+        assert summary['todos_completed'] == 1 and summary['reminders_completed'] == 1
+        preview = json.loads(call('PreviewNatural', 's', 'Sună-l pe Alex peste 20 de minute'))
+        assert preview['valid'] and preview['draft']['title'] == 'Sună-l pe Alex'
+        invalid = json.loads(call('PreviewNatural', 's', 'Test la 24:00'))
+        assert not invalid['valid']
+        call('Remove', 'x', recurring)
+        print('D-Bus companion: natural parsing, recurrence, idempotent completion, summary, expiry and restart passed')
     finally:
         stop(daemon)
         monitor.terminate()

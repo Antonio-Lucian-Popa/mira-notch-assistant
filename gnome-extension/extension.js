@@ -44,6 +44,8 @@ export default class MiraExtension extends Extension {
                 this._applyMode();
             else if (key === 'routine-delivered')
                 return;
+            else if (key === 'mascot-preview')
+                this._notch.previewMascot(this._settings.get_string('mascot-preview').split(':')[0]);
             else if (key === 'routine-preview')
                 this._notch.showRoutine(this._settings.get_string('routine-preview').split(':')[0]);
             else if (key === 'greeting-preview')
