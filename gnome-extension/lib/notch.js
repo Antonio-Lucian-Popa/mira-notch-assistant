@@ -20,11 +20,12 @@ import cairo from 'gi://cairo';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
 import {gazeOffset} from './gaze.js';
+import {Desktop} from './desktop.js';
 import {reminderState, parseWhen} from './reminders.js';
 import {routineEvents, validTime} from './routines.js';
 import {THEMES, EXPRESSIONS, contextMood, looksNatural, summaryText} from './mascot.js';
 
-const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary'];
+const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary', 'notes', 'clipboard', 'search'];
 
 // Titles shown at the left of the header per page. Music has none (its header
 // is just date/time). Two-tone titles use Pango markup.
@@ -37,6 +38,7 @@ const PAGE_TITLES = {
     reminders: 'Remind<span foreground="#FFB65C">ers</span>',
     shelf: 'Shelf',
     todo: 'Todo<span foreground="#2EE67A">List</span>',
+    notes: 'Sticky notepad', clipboard: 'Clipboard', search: 'Caută în fișiere',
 };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -82,6 +84,7 @@ class Notch extends St.Bin {
         this._settings = settings;
         this._hooks = hooks;
 
+        this._pageNames = PAGES;
         this._page = 0;
         this._open = false;
         this._activeLine = -1;
@@ -185,8 +188,8 @@ class Notch extends St.Bin {
         });
         this._buildHeader();
         const body = new St.BoxLayout({style_class: 'mira-body', y_expand: true, x_expand: true});
-        this._navLeft = new St.Button({style_class: 'mira-nav', child: new St.Label({text: '‹', style_class: 'mira-nav-glyph'})});
-        this._navRight = new St.Button({style_class: 'mira-nav', child: new St.Label({text: '›', style_class: 'mira-nav-glyph'})});
+        this._navLeft = new St.Button({y_align:Clutter.ActorAlign.CENTER, style_class: 'mira-nav', child: new St.Label({text: '‹', style_class: 'mira-nav-glyph'})});
+        this._navRight = new St.Button({y_align:Clutter.ActorAlign.CENTER, style_class: 'mira-nav', child: new St.Label({text: '›', style_class: 'mira-nav-glyph'})});
         this._navLeft.connect('clicked', () => this.setPage(this._page - 1));
         this._navRight.connect('clicked', () => this.setPage(this._page + 1));
         this._pageArea = new St.Widget({
@@ -249,7 +252,9 @@ class Notch extends St.Bin {
         this._buildTodoPage();
         this._buildRemindersPage();
         this._buildSummaryPage();
-        this.setPage(0);
+        this._desktop = new Desktop(this, this._client, this._settings, this._hooks);
+        this._desktop.build(this._pageArea);
+        this.setPage(5);
     }
 
     _buildHeader() {
@@ -267,6 +272,8 @@ class Notch extends St.Bin {
         const spacer = new St.Widget({x_expand: true});
         this._headerViz = this._buildVisualizer('mira-header-viz', 4);
 
+        this._headerEyes = this._buildEyes();
+        this._header.add_child(this._headerEyes);
         this._header.add_child(this._pageTitle);
         this._header.add_child(this._ring);
         this._header.add_child(this._date);
@@ -1070,6 +1077,7 @@ class Notch extends St.Bin {
     }
 
     refreshShelf() {
+        if (this._desktop) {this._desktop.refresh(); return;}
         if (!this._shelfList)
             return;
         this._client.getShelf(items => {
@@ -1140,8 +1148,8 @@ class Notch extends St.Bin {
         const minimal = this._settings.get_boolean('minimal');
         this._closed = minimal
             ? {w: t.minimal.width * scale, h: t.minimal.height, r: t.minimal.radiusBottom}
-            : {w: t.closed.width * scale, h: t.closed.height, r: t.closed.radiusBottom};
-        this._hoverSize = {w: t.hover.width * scale, h: t.hover.height, r: t.hover.radiusBottom};
+            : {w: t.closed.width * scale, h: t.closed.height * scale, r: t.closed.radiusBottom};
+        this._hoverSize = {w: this._settings.get_int('workspace-width'), h: this._settings.get_int('workspace-height'), r: 26};
         this._alertSize = {w: t.alert.width * scale, h: t.alert.height, r: t.alert.radiusBottom};
         const g = t.greeting ?? t.alert;
         this._greetSize = {w: g.width * scale, h: g.height, r: g.radiusBottom};
@@ -1161,18 +1169,15 @@ class Notch extends St.Bin {
         const monitor = Main.layoutManager.primaryMonitor;
         if (!monitor)
             return;
+        if (this._desktop && this._desktop.mode !== 'docked') {this._desktop.move(this.x, this.y); return;}
         const x = Math.round(monitor.x + (monitor.width - width) / 2);
-        this.set_position(x, monitor.y);
+        this.set_position(x, monitor.y + 32);
     }
 
     // --- open / close ---
     _onHover() {
-        if (this.hover) {
-            if (this._reminders.length && this._reminderUrgency !== 'calm')
-                this.setPage(PAGES.indexOf('reminders'));
-            this.open();
-        } else
-            this._scheduleClose();
+        // Explicit click-to-open keeps a moving companion catchable.
+        if (this.hover && this._closeTimer) {GLib.source_remove(this._closeTimer); this._closeTimer = 0;}
     }
 
     open() {
@@ -1185,6 +1190,7 @@ class Notch extends St.Bin {
             return;
         this._open = true;
         this._cancelIdle();
+        this._startEyeFollow();
         this._closedBox.hide();
         this._alertBox.hide();
         this._greetBox.hide();
@@ -1228,8 +1234,8 @@ class Notch extends St.Bin {
     _animateTo(size, duration, mode, onComplete) {
         this.remove_all_transitions();
         const monitor = Main.layoutManager.primaryMonitor;
-        const x = monitor ? Math.round(monitor.x + (monitor.width - size.w) / 2) : this.x;
-        this.set_style(`border-bottom-left-radius:${size.r}px;border-bottom-right-radius:${size.r}px;`);
+        const x = this._desktop?.mode !== 'docked' ? this.x : monitor ? Math.round(monitor.x + (monitor.width - size.w) / 2) : this.x;
+        this.set_style(`border-radius:${this._desktop?.mode === 'docked' ? 18 : size.r}px;`);
         this.ease({
             x,
             width: size.w,
@@ -1258,7 +1264,8 @@ class Notch extends St.Bin {
         this._lyricsPage.visible = name === 'lyrics';
         this._focusPage.visible = name === 'focus';
         this._waterPage.visible = name === 'water';
-        this._shelfPage.visible = name === 'shelf';
+        this._shelfPage.hide();
+        if (this._desktop) for (const [key, actor] of Object.entries(this._desktop.pages)) actor.visible = key === name;
         this._todoPage.visible = name === 'todo';
         this._remindersPage.visible = name === 'reminders';
         this._summaryPage.visible = name === 'summary';
@@ -1297,8 +1304,11 @@ class Notch extends St.Bin {
         case 'todo':
             this.refreshTodo();
             break;
+        case 'notes':
+        case 'clipboard':
+        case 'search':
         case 'shelf':
-            this.refreshShelf();
+            this._desktop?.refresh();
             break;
         case 'music':
             this._refreshMedia();
@@ -1317,7 +1327,7 @@ class Notch extends St.Bin {
 
     _onKey(ev) {
         const focus = global.stage.get_key_focus();
-        if (focus && [this._reminderTitleEntry, this._reminderWhenEntry, this._todoEntry, this._lyricsTitleInput, this._lyricsArtistInput].some(entry => entry?.contains(focus)))
+        if (focus && [this._reminderTitleEntry, this._reminderWhenEntry, this._todoEntry, this._lyricsTitleInput, this._lyricsArtistInput, this._desktop?.note, this._desktop?.query].some(entry => entry?.contains(focus)))
             return Clutter.EVENT_PROPAGATE;
         const sym = ev.get_key_symbol();
         const state = ev.get_state();
@@ -1358,7 +1368,7 @@ class Notch extends St.Bin {
                     }
                 }
                 if (path.startsWith('/') && GLib.file_test(path, GLib.FileTest.EXISTS)) {
-                    this._client.shelfAdd(path);
+                    this._desktop.add([path]);
                     added++;
                 }
             }
@@ -2071,17 +2081,17 @@ class Notch extends St.Bin {
     }
 
     _updateEyeFollow(px, py) {
-        if (this._open || !this._eyes.visible || !this.mapped)
+        if ((!this._open && !this._eyes.visible) || !this.mapped)
             return;
         const [ax, ay] = this.get_transformed_position();
         const [w, h] = this.get_transformed_size();
         const target = gazeOffset(px - ax - w / 2, py - ay - h / 2);
         // Move the parent, so blinking and personality animations on each eye
         // compose with the gaze instead of overwriting its translation.
-        this._eyes.ease({
+        (this._open ? this._headerEyes : this._eyes).ease({
             translation_x: target.x,
             translation_y: target.y,
-            duration: 120,
+            duration: 500,
             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
         });
     }
@@ -2347,6 +2357,8 @@ class Notch extends St.Bin {
     applySettings() {
         this._themeEyes(this._eyes._eyes);
         this._themeEyes(this._greetEyes._eyes, true);
+        if (this._headerEyes) this._themeEyes(this._headerEyes._eyes);
+        if (this._desktop) this._desktop.mode = this._settings.get_string('desktop-motion');
         this._computeSizes();
         const size = this._open ? this._hoverSize : this._closed;
         this.set_size(size.w, size.h);
@@ -2358,6 +2370,7 @@ class Notch extends St.Bin {
     }
 
     _onDestroy() {
+        this._desktop?.destroy();
         this._reminderAlive = false;
         this._summaryFetch++;
         if (this._naturalPreviewTimer) GLib.source_remove(this._naturalPreviewTimer);

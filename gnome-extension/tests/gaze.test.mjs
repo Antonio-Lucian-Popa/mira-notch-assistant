@@ -39,13 +39,14 @@ function followHarness() {
     }})};
     const fixture = new Function('PointerWatcher', 'global', 'gazeOffset', 'Clutter', `return ({${methods.replace(/\n    }\n/g, '\n    },\n')}});`)(watcher,
         {get_pointer: () => [900, 500]}, gazeOffset, {AnimationMode: {EASE_OUT_QUAD: 1}});
-    let eased;
+    let eased; let header;
     Object.assign(fixture, {
         mapped: true, _open: false,
+        _headerEyes: {ease: target => {header = target;}},
         _eyes: {visible: true, ease: target => {eased = target;}, remove_all_transitions() {}},
         get_transformed_position: () => [800, 0], get_transformed_size: () => [180, 32],
     });
-    return {fixture, motion: (x, y) => callback(x, y), counts: () => ({removed, watches}), target: () => eased};
+    return {fixture, motion: (x, y) => callback(x, y), counts: () => ({removed, watches}), target: () => eased, header: () => header};
 }
 test('pointer watch is registered once and removed when stopped', () => {
     const h = followHarness();
@@ -58,11 +59,13 @@ test('pointer watch is registered once and removed when stopped', () => {
     assert.equal(h.fixture._eyes.translation_x, 0);
     assert.equal(h.fixture._eyes.translation_y, 0);
 });
-test('open or hidden mascot does not animate on mouse movement', () => {
+test('expanded header follows the pointer with 500ms easing while hidden resting eyes stay still', () => {
     const h = followHarness();
     h.fixture._startEyeFollow();
     const previous = h.target();
     h.fixture._open = true; h.motion(-300, 20);
+    assert.ok(h.header().translation_x < 0);
+    assert.equal(h.header().duration, 500);
     assert.equal(h.target(), previous);
     h.fixture._open = false; h.fixture._eyes.visible = false; h.motion(-300, 20);
     assert.equal(h.target(), previous);

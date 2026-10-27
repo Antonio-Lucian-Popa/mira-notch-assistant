@@ -19,6 +19,7 @@ export default class MiraExtension extends Extension {
 
         this._client = new MiraClient();
         this._notch = new Notch(this._client, this._tokens, this._settings, {
+            extensionPath: this.path,
             openPrefs: () => {
                 try {
                     this.openPreferences();

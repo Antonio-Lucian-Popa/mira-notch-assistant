@@ -10,7 +10,7 @@ members = [
 # OS-specific code is cfg-gated so the workspace checks on both platforms.
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"

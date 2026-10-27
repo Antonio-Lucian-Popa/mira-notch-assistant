@@ -12,6 +12,8 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod dbus;
+#[cfg(target_os = "linux")]
+mod workspace;
 
 #[cfg(target_os = "linux")]
 #[tokio::main(flavor = "current_thread")]
@@ -181,6 +183,9 @@ mod linux {
                     shared: shared.clone(),
                 },
             )
+            .await?;
+        server
+            .at(PATH, crate::workspace::WorkspaceIface::new())
             .await?;
         conn.request_name(BUS_NAME).await?;
         tracing::info!("mira-daemon serving {BUS_NAME} at {PATH}");

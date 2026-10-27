@@ -5,7 +5,7 @@ screen. Mira shows your music, synced lyrics, timers, system notifications and a
 file shelf, then gets out of the way. It runs on **Windows 10/11** and
 **Ubuntu / GNOME (Wayland)**. Windows is currently a native preview with a smaller feature set.
 
-> **Status: v0.5.0 source update.** Linux has the daemon and GNOME extension. Windows has an
+> **Status: v0.6.0 desktop workspace preview.** Linux has the daemon and GNOME extension. Windows has an
 > initial native host with cursor-following eyes, a clock, media-key controls,
 > Pomodoro, a persistent daily water counter and standalone reminders. Windows feature parity is in progress. An independent **Android preview** built with React Native and a native Kotlin overlay lives in [`mobile/`](mobile/README.md).
 
@@ -122,7 +122,7 @@ To build on Windows:
 cargo build --release --locked -p mira-win
 .\target\release\mira-win.exe
 # Optional installer (Inno Setup 6 installed):
-iscc /DMiraVersion=0.5.0 packaging/windows/mira.iss
+iscc /DMiraVersion=0.6.0 packaging/windows/mira.iss
 ```
 
 Move the pointer anywhere on the desktop: the resting eyes follow it smoothly
@@ -211,6 +211,55 @@ replaying old lunch greetings late in the day. Calendar times follow the local
 timezone and daylight-saving changes. These routines require an active GNOME
 session with the extension enabled; pending banners wait until the notch is free.
 This settings UI is not yet part of the Windows preview.
+
+## Desktop workspace (0.6.0)
+
+The desktop companion now opens **on click**. Double-click its frame/eyes to return
+home. Drag the eyes/header downward to detach a rounded workspace; drag its lower
+right corner to resize, or throw it upward to dock it. The eyes remain visible in
+the header and follow the cursor with 500 ms easing.
+
+Right-click exposes **Follow (500 ms trail)**, **Pin**, **Free roam**, **Home**,
+workspace pages, clipboard pause/clear and size controls. Follow pauses while the
+pointer is on the robot, while dragging files or while the menu/workspace is open.
+Free roam uses occasional moves and expressions; thought captions show actual CPU
+and RAM measurements, never randomly generated percentages.
+
+- **File shelf:** drop files/folders, or choose a folder from the menu. Entries are
+  shortcuts; opening launches the original and clearing never deletes it. Folder
+  context includes immediate children, up to 256 links and eight search roots.
+  GNOME uses a GTK4 drop surface at the robot's position for real Wayland drops;
+  it returns to the shelf after receiving files. Windows accepts Explorer drops.
+  GNOME cards spring upward on hover; Windows cards gently float (motion can be disabled).
+- **Folder under the robot:** on release, Windows attempts a one-shot UI Automation
+  lookup for an Explorer/desktop folder item. GNOME supports desktop icon delegates
+  exposing a file URI. Nautilus/DING and other process surfaces may not expose that
+  information; dropping/selecting the folder works independently of this lookup.
+  Windows lookup is compiled but still needs verification on an actual Windows desktop.
+- **Sticky notepad:** multiline temporary text, including Ctrl+V. **Clipboard:** the
+  last 32 unique copied texts (up to 16,384 characters each); click to copy one again.
+  Windows also records copied file paths. Images/rich clipboard formats are not captured.
+  Capture can be paused; GNOME avoids capturing on the lock screen. Clipboard/sticky
+  contents live only in process memory, never SQLite/logs/cloud. Clear removes them;
+  restarting the daemon/app ends the session. GNOME disable also clears the workspace.
+- **Folder search:** literal, case-insensitive grep implemented with the Rust regex
+  engine. Only folders explicitly added to this workspace are searched. Runs on a
+  worker, supports cancellation, skips symlinks, binary/hidden files and common build
+  directories. Bounds: 3 seconds, 4,000 files, 2 MiB per file, 200 hits. Partial results
+  are labeled. Results include file, line and excerpt; opening uses your default app
+  (editor-specific jump-to-line integration is not implemented).
+
+GNOME preview gestures and UI were exercised in an isolated Wayland compositor;
+Windows cross-compiles, but native gestures/Explorer integration need Windows testing.
+The Android 0.1 preview is unchanged by this desktop release.
+
+Integration verification (isolated session):
+
+```sh
+cargo build -p mira-daemon
+dbus-run-session -- python3 crates/mira-daemon/tests/workspace_dbus.py
+node --test gnome-extension/tests/*.test.mjs
+```
 
 ## Companion features (0.5.0)
 

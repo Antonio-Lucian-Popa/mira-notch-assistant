@@ -22,6 +22,7 @@ const IFACE = {
     shelf: 'ro.novabytecode.Mira.Shelf',
     reminders: 'ro.novabytecode.Mira.Reminders',
     summary: 'ro.novabytecode.Mira.Summary',
+    workspace: 'ro.novabytecode.Mira.Workspace',
 };
 
 export class MiraClient {
@@ -279,6 +280,13 @@ export class MiraClient {
     }
     reminderSnooze(id, onOk, onErr) {
         this._callRet('reminders', 'Snooze', new GLib.Variant('(xx)', [id, Math.floor(Date.now() / 1000) + 300]), onOk, onErr);
+    }
+
+    workspace(method, args, cb = () => {}) {
+        const types = {AddPaths: '(as)', Note: '(s)', PushClip: '(s)', Capture: '(b)', Remove: '(s)', Search: '(s)'};
+        this._callRet('workspace', method, types[method] ? new GLib.Variant(types[method], args) : null,
+            ret => {try {cb(ret.n_children() ? JSON.parse(ret.deepUnpack()[0]) : {});} catch {cb({});}},
+            e => cb({error: String(e)}));
     }
 
     // Fetch shelf items asynchronously; cb receives [[id, path, epoch], ...].
