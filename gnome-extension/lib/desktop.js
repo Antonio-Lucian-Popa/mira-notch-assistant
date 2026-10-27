@@ -289,7 +289,7 @@ export class Desktop {
         this.phoneInfo.text=data.running?`${data.address} · PDF-urile ajung în ${data.directory}`:'Primire oprită. Asocierea acordă acces la transcrieri și la shortcuturile de mai jos.';
         const shake=data.shake??{first:'lock',second:'',next_second:false};
         const update=(first,second)=>this.client.workspace('PhoneSetShake',[first,second],result=>{if(result.error)this.phoneInfo.text=result.error;else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));});
-        const status=this.label(`Scuturare · urmează ${shake.next_second?'revenirea':'plecarea'} · salvat pe PC`);
+        const status=this.label(!shake.first&&!shake.second?'Scuturare inactivă · alege o acțiune':`Scuturare · urmează ${shake.next_second||!shake.first?'revenirea':'plecarea'} · salvat pe PC`);
         status.clutter_text.line_wrap=true;this.phoneList.add_child(status);
         this.phoneList.add_child(this.button('Resetează la plecare',()=>update(shake.first,shake.second)));
         for(const action of data.actions??[]){
@@ -303,6 +303,7 @@ export class Desktop {
             card.add_child(choices);this.phoneList.add_child(card);
         }
         this.phoneList.add_child(this.button('Doar plecare · fără alternare',()=>update(shake.first,'')));
+        this.phoneList.add_child(this.button('Dezactivează acțiunile la scuturare',()=>update('','')));
     }
     executeRemote(job){
         if(Date.now()-job.issued_at>10000)return;

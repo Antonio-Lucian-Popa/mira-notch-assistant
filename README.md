@@ -441,3 +441,9 @@ sequence after manual changes. Mappings survive restarts and re-pairing. This
 is request alternation, not automatic detection of the actual lock state.
 The GNOME receiver can remain active while locked, with Mira's UI hidden,
 but return shortcuts do not bypass the system's unlock authentication.
+
+Any phone shortcut, including the built-in lock action or a selected shake
+action, can be deleted. Deletion clears only its shake assignments and pending
+queue entries. It never selects another action automatically. With one selected
+action, shakes repeat that action; with neither selected, shaking does nothing.
+These choices, including an empty list, remain saved after receiver restarts.

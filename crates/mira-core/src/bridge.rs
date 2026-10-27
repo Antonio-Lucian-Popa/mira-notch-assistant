@@ -264,9 +264,6 @@ impl Receiver {
                 return Err(Error::other("Alege acțiuni din lista acestui PC."));
             }
         }
-        if first.is_empty() {
-            return Err(Error::other("Alege acțiunea de plecare."));
-        }
         let previous = state.shake.clone();
         state.shake = Shake {
             first: first.into(),
@@ -284,13 +281,28 @@ impl Receiver {
             .shared
             .lock()
             .map_err(|_| Error::other("Receiver unavailable"))?;
-        if state.shake.first == id || state.shake.second == id {
-            return Err(Error::other(
-                "Acțiunea este folosită la scuturare. Alege alta înainte de ștergere.",
-            ));
-        }
+        let previous_actions = state.actions.clone();
+        let previous_shake = state.shake.clone();
         state.actions.retain(|a| a.id != id);
-        save_private(&self.config, &serde_json::to_vec(&*state)?)
+        if state.shake.first == id || state.shake.second == id {
+            if state.shake.first == id {
+                state.shake.first.clear();
+            }
+            if state.shake.second == id {
+                state.shake.second.clear();
+            }
+            state.shake.next_second = false;
+        }
+        if let Err(error) = save_private(&self.config, &serde_json::to_vec(&*state)?) {
+            state.actions = previous_actions;
+            state.shake = previous_shake;
+            return Err(error);
+        }
+        self.jobs
+            .lock()
+            .map_err(|_| Error::other("Receiver unavailable"))?
+            .retain(|job| job.action.id != id);
+        Ok(())
     }
     pub fn drain(&self) -> Vec<RemoteAction> {
         self.jobs
@@ -522,7 +534,9 @@ fn serve(
         }
         let is_shake = trigger.action_id == "shake";
         let chosen = if is_shake {
-            if identity.shake.next_second && !identity.shake.second.is_empty() {
+            if (identity.shake.next_second || identity.shake.first.is_empty())
+                && !identity.shake.second.is_empty()
+            {
                 &identity.shake.second
             } else {
                 &identity.shake.first
@@ -543,7 +557,8 @@ fn serve(
         }
         if is_shake {
             let previous = identity.shake.next_second;
-            identity.shake.next_second = !previous && !identity.shake.second.is_empty();
+            identity.shake.next_second =
+                !previous && !identity.shake.first.is_empty() && !identity.shake.second.is_empty();
             if save_private(config_path, &serde_json::to_vec(&*identity)?).is_err() {
                 identity.shake.next_second = previous;
                 return respond(&mut stream, 503, "{}");
@@ -692,7 +707,6 @@ mod tls_integration {
         let second = snapshot["actions"][2]["id"].as_str().unwrap();
         receiver.set_shake(first, second).unwrap();
         assert!(receiver.set_shake("unknown", second).is_err());
-        assert!(receiver.remove_action(first).is_err());
         let token = receiver.shared.lock().unwrap().token.clone();
         let trigger = r#"{"request_id":"shake-one","action_id":"shake"}"#;
         for _ in 0..2 {
@@ -723,6 +737,55 @@ mod tls_integration {
         assert_eq!(receiver.snapshot()["shake"]["second"], second);
         assert_eq!(receiver.snapshot()["actions"].as_array().unwrap().len(), 3);
         assert!(call(&receiver, &token, "GET", "/v1/actions", "").starts_with("HTTP/1.1 401"));
+        let token = receiver.shared.lock().unwrap().token.clone();
+        assert!(call(
+            &receiver,
+            &token,
+            "POST",
+            "/v1/actions",
+            r#"{"request_id":"pending-delete","action_id":"shake"}"#
+        )
+        .starts_with("HTTP/1.1 202"));
+        receiver.remove_action(first).unwrap();
+        assert!(
+            receiver.drain().is_empty(),
+            "deleted action must also leave the queue"
+        );
+        assert_eq!(receiver.snapshot()["shake"]["first"], "");
+        assert_eq!(receiver.snapshot()["shake"]["second"], second);
+        assert!(call(
+            &receiver,
+            &token,
+            "POST",
+            "/v1/actions",
+            r#"{"request_id":"only-return","action_id":"shake"}"#
+        )
+        .starts_with("HTTP/1.1 202"));
+        assert_eq!(receiver.drain()[0].action.keys, ["CTRL", "ALT", "1"]);
+        receiver.remove_action("lock").unwrap();
+        receiver.remove_action(second).unwrap();
+        assert!(receiver.snapshot()["actions"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(call(
+            &receiver,
+            &token,
+            "POST",
+            "/v1/actions",
+            r#"{"request_id":"disabled-shake","action_id":"shake"}"#
+        )
+        .starts_with("HTTP/1.1 404"));
+        receiver.set_shake("", "").unwrap();
+        let config = receiver.config.clone();
+        drop(receiver);
+        let receiver = Receiver::start(config, dir.path().join("inbox"), "127.0.0.1:0").unwrap();
+        assert!(receiver.snapshot()["actions"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(receiver.snapshot()["shake"]["first"], "");
+        assert_eq!(receiver.snapshot()["shake"]["second"], "");
     }
     #[test]
     #[ignore = "Local TLS sockets; run explicitly with network sandbox permission"]
