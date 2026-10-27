@@ -13,6 +13,7 @@ export type Focus = {
   paused: boolean;
 };
 export type Snapshot = {
+  appVersion?: string;
   reminders: Reminder[];
   theme: Theme;
   scale: number;

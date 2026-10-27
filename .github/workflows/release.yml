@@ -9,8 +9,8 @@
 #   * Permissions are least-privilege: read everywhere, `contents: write` only
 #     on the job that publishes the release.
 #
-# What it does: computes the next vX.Y.Z tag, builds the Debian package (and the
-# Windows executable and installer), and publishes a GitHub Release
+# What it does: computes the next vX.Y.Z tag, builds the Debian package, Android
+# preview APK, Windows executable and installer, and publishes a GitHub Release
 # with those artifacts attached.
 
 name: release
@@ -31,18 +31,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Serialize tag creation across main, manual runs and accepted version tags.
+  group: mira-release
   cancel-in-progress: false
 
 jobs:
   # Decide the next tag: bump the patch of the latest v* tag, with the
   # Cargo.toml version as a floor (lets you jump minor/major via Cargo.toml).
   version:
+    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}
       version: ${{ steps.v.outputs.version }}
       has_windows: ${{ steps.v.outputs.has_windows }}
+      android_code: ${{ steps.v.outputs.android_code }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,6 +53,8 @@ jobs:
       - id: v
         run: |
           set -euo pipefail
+          # Above the historical preview code (5); stable when a job is retried.
+          echo "android_code=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
           # The Windows job can't use hashFiles() in its job-level `if`, so we
           # detect the crate here (repo is checked out) and expose a flag.
           if [ -f crates/mira-win/Cargo.toml ]; then
@@ -115,6 +120,16 @@ jobs:
           name: mira-deb
           path: target/debian/*.deb
           if-no-files-found: error
+
+  # Reuse the same Android SDK setup and tests exercised by pull requests.
+  build-android:
+    needs: version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/mobile.yml
+    with:
+      release_version: ${{ needs.version.outputs.version }}
+      release_version_code: ${{ fromJSON(needs.version.outputs.android_code || '0') }}
 
   # Build the native Windows host and its per-user installer.
   build-windows:
@@ -237,8 +252,8 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [version, build-linux, build-windows]
-    if: ${{ always() && needs.build-linux.result == 'success' && needs.build-windows.result == 'success' }}
+    needs: [version, build-linux, build-android, build-windows]
+    if: ${{ always() && needs.version.result == 'success' && needs.build-linux.result == 'success' && needs.build-android.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') }}
     permissions:
       contents: write
     steps:
@@ -254,6 +269,17 @@ jobs:
         with:
           name: mira-windows
           path: artifacts
+      - name: Download the Android preview APK
+        uses: actions/download-artifact@v4
+        with:
+          name: mira-android-preview
+          path: artifacts
+      - name: Check required release assets and create checksums
+        run: |
+          set -euo pipefail
+          test "$(find artifacts -maxdepth 1 -name '*.deb' | wc -l)" -eq 1
+          test "$(find artifacts -maxdepth 1 -name '*.apk' | wc -l)" -eq 1
+          (cd artifacts && sha256sum *.deb *.apk > SHA256SUMS)
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -263,5 +289,6 @@ jobs:
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
             --title "Mira $TAG" \
+            --notes "Includes Ubuntu .deb and Android preview APK. The APK uses the existing development signing key; production signing is not configured." \
             --generate-notes \
             artifacts/*

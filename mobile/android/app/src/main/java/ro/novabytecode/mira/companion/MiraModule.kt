@@ -9,6 +9,7 @@ import com.facebook.react.bridge.*
 import com.facebook.react.ReactPackage
 import com.facebook.react.uimanager.ViewManager
 import org.json.JSONObject
+import ro.novabytecode.mira.BuildConfig
 
 class MiraModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context), LifecycleEventListener {
     init { context.addLifecycleEventListener(this) }
@@ -29,6 +30,7 @@ class MiraModule(private val context: ReactApplicationContext) : ReactContextBas
     private fun result(promise: Promise, task: () -> String) { try { promise.resolve(task()) } catch (e: Exception) { promise.reject("MIRA", e.message, e) } }
     @ReactMethod fun snapshot(promise: Promise) = result(promise) {
         MiraStore(context).snapshot().put("overlayGranted", Settings.canDrawOverlays(context))
+            .put("appVersion",BuildConfig.VERSION_NAME)
             .put("overlayRunning", MiraOverlayService.running())
             .put("shakeEnabled", context.getSharedPreferences("mira.shake", android.content.Context.MODE_PRIVATE).getBoolean("enabled", false))
             .put("voiceModel",LocalVoiceModel.snapshot(context))
