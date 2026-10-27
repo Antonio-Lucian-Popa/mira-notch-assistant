@@ -17,6 +17,8 @@ import St from 'gi://St';
 import cairo from 'gi://cairo';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
+import {gazeOffset} from './gaze.js';
 
 const PAGES = ['music', 'lyrics', 'focus', 'water', 'shelf', 'todo'];
 
@@ -93,9 +95,8 @@ class Notch extends St.Bin {
 
         // Mascot eyes.
         this._eyeLifeTimer = 0;
-        this._eyeFollowTimer = 0;
+        this._eyeFollowWatch = null;
         this._eyeBusy = false;
-        this._eyeTarget = {x: 0, y: 0};
         this._greetSeqTimers = [];
         this._fxActors = [];
         this._monitorsChangedId = 0;
@@ -1521,7 +1522,7 @@ class Notch extends St.Bin {
         const fixed = this._settings.get_string('eye-style');
         // With pointer-follow on, drop the plain look-around moves (the eyes
         // already track the mouse) and favour expressive ones.
-        const all = this._eyeFollowTimer
+        const all = this._eyeFollowWatch
             ? ['blink', 'blink', 'blink', 'doubleBlink', 'squintHappy', 'wink', 'surprised', 'excited', 'sleepy', 'love', 'hearts']
             : ['blink', 'blink', 'blink', 'doubleBlink', 'glanceL', 'glanceR', 'lookAround', 'lookUp', 'squintHappy', 'wink', 'surprised', 'excited', 'sleepy', 'dizzy', 'love', 'hearts'];
         let pick;
@@ -1546,54 +1547,38 @@ class Notch extends St.Bin {
         this._eyeAnim(this._eyes._eyes, name);
     }
 
-    // --- eyes follow the pointer (primary monitor only) ---
+    // Watch global pointer motion, including other monitors. GNOME suspends
+    // this shared watcher while idle; Clutter animates only after a movement.
     _startEyeFollow() {
-        if (this._eyeFollowTimer)
+        if (this._eyeFollowWatch)
             return;
-        this._eyeFollowTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 55, () => {
-            this._updateEyeFollow();
-            return GLib.SOURCE_CONTINUE;
-        });
+        this._eyeFollowWatch = PointerWatcher.getPointerWatcher().addWatch(16,
+            (x, y) => this._updateEyeFollow(x, y));
+        this._updateEyeFollow(...global.get_pointer());
     }
 
     _stopEyeFollow() {
-        if (this._eyeFollowTimer) {
-            GLib.source_remove(this._eyeFollowTimer);
-            this._eyeFollowTimer = 0;
-        }
+        this._eyeFollowWatch?.remove();
+        this._eyeFollowWatch = null;
+        this._eyes.remove_all_transitions();
+        this._eyes.translation_x = 0;
+        this._eyes.translation_y = 0;
     }
 
-    _updateEyeFollow() {
-        if (this._open || this._eyeBusy || !this._eyes.visible)
+    _updateEyeFollow(px, py) {
+        if (this._open || !this._eyes.visible || !this.mapped)
             return;
-        const eyes = this._eyes._eyes;
-        if (!eyes || eyes.length < 2)
-            return;
-        const monitor = Main.layoutManager.primaryMonitor;
-        let ox = 0, oy = 0;
-        try {
-            const [px, py] = global.get_pointer();
-            // Only react to the pointer on the primary monitor (where we live).
-            const onPrimary = monitor && px >= monitor.x && px < monitor.x + monitor.width &&
-                py >= monitor.y && py < monitor.y + monitor.height;
-            if (onPrimary) {
-                const [ax, ay] = this.get_transformed_position();
-                const cx = ax + this.width / 2;
-                const cy = ay + this.height / 2;
-                const maxX = 4, maxY = 3;
-                ox = Math.max(-1, Math.min(1, (px - cx) / 160)) * maxX;
-                oy = Math.max(-0.4, Math.min(1, (py - cy) / 220)) * maxY;
-            }
-        } catch (e) {
-            return;
-        }
-        // Smoothly approach the target so motion feels alive, not jittery.
-        this._eyeTarget.x += (ox - this._eyeTarget.x) * 0.35;
-        this._eyeTarget.y += (oy - this._eyeTarget.y) * 0.35;
-        for (const e of eyes) {
-            e.translation_x = this._eyeTarget.x;
-            e.translation_y = this._eyeTarget.y;
-        }
+        const [ax, ay] = this.get_transformed_position();
+        const [w, h] = this.get_transformed_size();
+        const target = gazeOffset(px - ax - w / 2, py - ay - h / 2);
+        // Move the parent, so blinking and personality animations on each eye
+        // compose with the gaze instead of overwriting its translation.
+        this._eyes.ease({
+            translation_x: target.x,
+            translation_y: target.y,
+            duration: 120,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+        });
     }
 
     // The animation library. Each case animates the pair of eye actors.
@@ -1852,10 +1837,10 @@ class Notch extends St.Bin {
     }
 
     _onDestroy() {
+        this._stopEyeFollow();
         for (const t of [
             this._closeTimer, this._alertTimer, this._clockTimer, this._vizTimer,
             this._headerVizTimer, this._progressTimer, this._greetTimer, this._eyeLifeTimer,
-            this._eyeFollowTimer,
         ])
             if (t)
                 GLib.source_remove(t);
@@ -1867,6 +1852,6 @@ class Notch extends St.Bin {
         }
         this._closeTimer = this._alertTimer = this._clockTimer = this._vizTimer = 0;
         this._headerVizTimer = this._progressTimer = this._greetTimer = this._eyeLifeTimer = 0;
-        this._eyeFollowTimer = 0;
+        this._eyeFollowWatch = null;
     }
 });

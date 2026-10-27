@@ -5,8 +5,9 @@ screen. Mira shows your music, synced lyrics, timers, system notifications and a
 file shelf, then gets out of the way. It runs on **Windows 10/11** and
 **Ubuntu / GNOME (Wayland)**, and looks identical on both.
 
-> **Status: Phase 1, in progress.** This repository is being built in small,
-> always-compiling steps. The shared core is done; platform hosts follow.
+> **Status: v0.2.0.** Linux has the daemon and GNOME extension. Windows has an
+> initial native host with cursor-following eyes, a clock, media-key controls,
+> Pomodoro and a persistent daily water counter. Windows feature parity is in progress.
 
 ## Principles
 
@@ -26,12 +27,11 @@ mira-notch-assistant/
 ├─ design/tokens.json         # single source of truth for the notch's look
 ├─ crates/
 │  ├─ mira-core/              # ✅ OS-agnostic logic (state, events, lyrics, storage)
-│  ├─ mira-platform-win/      # ⏳ Windows data sources (GSMTC, WMI, …)
 │  ├─ mira-platform-linux/    # ✅ Linux data sources (MPRIS, UPower, … via D-Bus)
-│  ├─ mira-win/               # ⏳ Windows executable (native UI + tray)
+│  ├─ mira-win/               # ✅ Initial native Win32 UI
 │  └─ mira-daemon/            # ✅ Linux daemon (D-Bus service ro.novabytecode.Mira)
 ├─ gnome-extension/           # ✅ GNOME Shell UI (GJS)
-└─ packaging/                 # ⏳ Windows installer, .deb, systemd unit
+└─ packaging/                 # ✅ Windows installer, .deb, systemd unit
 ```
 
 ### `mira-core`
@@ -110,7 +110,32 @@ alert. Check for errors with `journalctl -f /usr/bin/gnome-shell`. If the daemon
 is not running, the notch still shows the clock and the preferences window says
 so.
 
-The Windows "how to test manually" section is added when that host lands.
+### Windows 10/11 (x64)
+
+Download `mira-win.exe` or the per-user setup installer from Releases. The
+installer offers optional startup at sign-in and needs no administrator rights.
+To build on Windows:
+
+```powershell
+cargo build --release --locked -p mira-win
+.\target\release\mira-win.exe
+# Optional installer (Inno Setup 6 installed):
+iscc /DMiraVersion=0.2.0 packaging/windows/mira.iss
+```
+
+Move the pointer anywhere on the desktop: the resting eyes follow it smoothly
+and blink. Hover to expand; click the title to cycle Music, Pomodoro and Water.
+Click the actions below each page to control playback, start/pause/reset focus,
+or adjust water. Right-click for Exit. Water is stored in `%APPDATA%\Mira\mira.db`;
+settings, including `language = "ro"` or `"en"`, are read from `config.toml` in
+that folder. The installer preserves this personal data on uninstall.
+
+This first Windows host uses system media keys. Track metadata, synced lyrics,
+to-dos, file shelf, battery alerts, fullscreen hiding and tray integration are
+still Linux-only or pending. Test mixed-DPI displays, a real media player,
+water persistence across restart, hover open/close and installer/uninstaller
+on a Windows machine before wider distribution. Linux cross-compilation checks
+buildability but cannot verify Windows UI behavior.
 
 ## Roadmap
 
