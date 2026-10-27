@@ -7,18 +7,18 @@ file shelf, then gets out of the way. It runs on **Windows 10/11** and
 
 > **Status: v0.5.0 source update.** Linux has the daemon and GNOME extension. Windows has an
 > initial native host with cursor-following eyes, a clock, media-key controls,
-> Pomodoro, a persistent daily water counter and standalone reminders. Windows feature parity is in progress.
+> Pomodoro, a persistent daily water counter and standalone reminders. Windows feature parity is in progress. An independent **Android preview** built with React Native and a native Kotlin overlay lives in [`mobile/`](mobile/README.md).
 
 ## Principles
 
-- **Light** — target ~0% idle CPU and under 40 MB RAM. No webview, no Electron.
+- **Light desktop hosts** — target ~0% idle CPU and under 40 MB RAM. No webview, no Electron.
 - **Event-driven** — subscribe to OS media events; update countdowns while needed. Avoid continuous
   redraws when the UI is at rest.
 - **Local-first** — no accounts, no telemetry. The only network access is to
   [LRCLIB](https://lrclib.net) for lyrics.
 - **Shared visual language** — one design-token file (`design/tokens.json`)
-  drives sizes, colors, animations and pages for both UIs.
-- **Bilingual** — Romanian and English from the start.
+  drives sizes, colors, animations and pages for both desktop UIs.
+- **Bilingual desktop** — Romanian and English. The Android preview starts in Romanian.
 
 ## Repository layout
 
@@ -30,6 +30,7 @@ mira-notch-assistant/
 │  ├─ mira-platform-linux/    # ✅ Linux data sources (MPRIS, UPower, … via D-Bus)
 │  ├─ mira-win/               # ✅ Initial native Win32 UI
 │  └─ mira-daemon/            # ✅ Linux daemon (D-Bus service ro.novabytecode.Mira)
+├─ mobile/                    # Android preview: React Native + Kotlin overlay
 ├─ gnome-extension/           # ✅ GNOME Shell UI (GJS)
 └─ packaging/                 # ✅ Windows installer, .deb, systemd unit
 ```
