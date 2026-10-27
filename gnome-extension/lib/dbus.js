@@ -20,6 +20,7 @@ const IFACE = {
     water: 'ro.novabytecode.Mira.Water',
     todo: 'ro.novabytecode.Mira.Todo',
     shelf: 'ro.novabytecode.Mira.Shelf',
+    reminders: 'ro.novabytecode.Mira.Reminders',
 };
 
 export class MiraClient {
@@ -114,6 +115,7 @@ export class MiraClient {
         this._emit('water-changed');
         this._emit('todo-changed');
         this._emit('shelf-changed');
+        this._emit('reminders-changed');
     }
 
     _watchProps(key, event) {
@@ -160,6 +162,15 @@ export class MiraClient {
             } else if (signal === 'ReminderDue') {
                 const [, text] = params.deepUnpack();
                 this._emit('alert', 'reminder', text);
+            }
+        });
+
+        on(this._proxies.reminders, (_p, _sender, signal, params) => {
+            if (signal === 'ItemsChanged')
+                this._emit('reminders-changed');
+            else if (signal === 'Due') {
+                const [id, text] = params.deepUnpack();
+                this._emit('reminder-due', Number(id), text);
             }
         });
 
@@ -237,6 +248,24 @@ export class MiraClient {
             ]);
             cb(items);
         }, () => cb([]));
+    }
+
+    getReminders(onOk, onErr = () => {}) {
+        this._callRet('reminders', 'GetItems', null, ret => {
+            onOk(ret.deepUnpack()[0].map(([id, text, due, created, notified]) => ({
+                id: Number(id), text, due: Number(due), created: Number(created), notified,
+            })));
+        }, onErr);
+    }
+
+    reminderAdd(text, due, onOk, onErr) {
+        this._callRet('reminders', 'Add', new GLib.Variant('(sx)', [text, due]), onOk, onErr);
+    }
+    reminderRemove(id, onOk, onErr) {
+        this._callRet('reminders', 'Remove', new GLib.Variant('(x)', [id]), onOk, onErr);
+    }
+    reminderSnooze(id, onOk, onErr) {
+        this._callRet('reminders', 'Snooze', new GLib.Variant('(xx)', [id, Math.floor(Date.now() / 1000) + 300]), onOk, onErr);
     }
 
     // Fetch shelf items asynchronously; cb receives [[id, path, epoch], ...].

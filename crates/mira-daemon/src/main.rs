@@ -43,8 +43,8 @@ mod linux {
     use mira_core::store::Store;
 
     use crate::dbus::{
-        self, LyricsIface, MediaIface, PomodoroIface, PowerIface, ServiceIface, Shared, ShelfIface,
-        SystemIface, TodoIface, WaterIface, BUS_NAME, PATH,
+        self, LyricsIface, MediaIface, PomodoroIface, PowerIface, RemindersIface, ServiceIface,
+        Shared, ShelfIface, SystemIface, TodoIface, WaterIface, BUS_NAME, PATH,
     };
 
     pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -161,6 +161,14 @@ mod linux {
                 },
             )
             .await?;
+        server
+            .at(
+                PATH,
+                RemindersIface {
+                    shared: shared.clone(),
+                },
+            )
+            .await?;
         conn.request_name(BUS_NAME).await?;
         tracing::info!("mira-daemon serving {BUS_NAME} at {PATH}");
 
@@ -262,6 +270,45 @@ mod linux {
                         }
                         // The cleared reminders changed the list.
                         let _ = TodoIface::items_changed(iface.signal_emitter()).await;
+                    }
+                }
+            });
+        }
+
+        // Separate reminders keep their due state until acknowledged. The flag
+        // survives daemon restarts; signals are emitted once per due/snooze cycle.
+        {
+            let conn = conn.clone();
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                let Ok(iface) = conn
+                    .object_server()
+                    .interface::<_, RemindersIface>(PATH)
+                    .await
+                else {
+                    return;
+                };
+                let mut tick = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    tick.tick().await;
+                    let store = shared.store.lock().await;
+                    match store.reminders() {
+                        Ok(items) => {
+                            for r in items
+                                .iter()
+                                .filter(|r| !r.notified && r.due_epoch <= dbus::now_epoch())
+                            {
+                                if RemindersIface::due(iface.signal_emitter(), r.id, &r.text)
+                                    .await
+                                    .is_ok()
+                                {
+                                    if let Err(e) = store.mark_reminder_notified(r.id) {
+                                        tracing::warn!("marking reminder delivered: {e}");
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => tracing::warn!("reading reminders: {e}"),
                     }
                 }
             });

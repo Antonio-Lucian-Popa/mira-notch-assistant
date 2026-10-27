@@ -578,3 +578,35 @@
     color: #ff5a8a;
     font-size: 13px;
 }
+
+/* Standalone reminders — warm accents, compact countdown card. */
+.mira-reminders { spacing: 16px; }
+.mira-reminder-hero { spacing: 5px; min-width: 150px; max-width: 170px; padding: 4px 10px; }
+.mira-reminder-eyebrow { font-size: 9px; font-weight: 700; color: #9a9aa0; letter-spacing: 1px; }
+.mira-reminder-time { font-size: 32px; font-weight: 800; color: #8fb0ff; }
+.mira-reminder-time.soon { color: #ffb65c; }
+.mira-reminder-time.urgent, .mira-reminder-time.due { color: #ff7878; }
+.mira-reminder-name { font-size: 12px; color: #f2f2f3; max-width: 160px; }
+.mira-reminder-right { spacing: 4px; }
+.mira-reminder-form { spacing: 5px; }
+.mira-reminder-entry, .mira-reminder-when {
+    padding: 5px 8px; border-radius: 9px; background-color: #1c1c22;
+    border: 1px solid #303039; color: #f2f2f3; font-size: 11px;
+}
+.mira-reminder-entry:focus, .mira-reminder-when:focus { border-color: #ffb65c; }
+.mira-reminder-when { width: 65px; }
+.mira-reminder-presets { spacing: 5px; }
+.mira-reminder-preset { padding: 2px 8px; border-radius: 7px; background-color: #24212a; color: #ffce91; font-size: 10px; }
+.mira-reminder-preset:hover { background-color: #3b3040; }
+.mira-reminder-feedback { max-width: 285px; color: #a5a5b0; font-size: 9px; }
+.mira-reminder-list { spacing: 4px; }
+.mira-reminder-row { spacing: 6px; padding: 3px 7px; border-radius: 9px; background-color: #19191f; }
+.mira-reminder-row.soon { background-color: #292218; }
+.mira-reminder-row.urgent, .mira-reminder-row.due { background-color: #301e24; }
+.mira-reminder-row-name { font-size: 11px; color: #e6e6ef; max-width: 155px; }
+.mira-reminder-row-time { color: #ffce91; font-size: 11px; font-weight: 700; min-width: 43px; }
+.mira-reminder-empty { font-size: 10px; color: #9a9aa0; padding-top: 6px; }
+.mira-reminder-badge { margin-left: 9px; padding: 2px 6px; border-radius: 7px; background-color: #19202e; color: #aec8ff; font-size: 10px; font-weight: 700; }
+.mira-reminder-badge.soon { background-color: #30261a; color: #ffce91; }
+.mira-reminder-badge.urgent, .mira-reminder-badge.due { background-color: #391f28; color: #ff9b9b; }
+.mira-reminder-badge:hover { background-color: #3c3544; }

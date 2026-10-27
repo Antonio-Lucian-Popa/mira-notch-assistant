@@ -5,9 +5,9 @@ screen. Mira shows your music, synced lyrics, timers, system notifications and a
 file shelf, then gets out of the way. It runs on **Windows 10/11** and
 **Ubuntu / GNOME (Wayland)**, and looks identical on both.
 
-> **Status: v0.2.0.** Linux has the daemon and GNOME extension. Windows has an
+> **Status: v0.3.0.** Linux has the daemon and GNOME extension. Windows has an
 > initial native host with cursor-following eyes, a clock, media-key controls,
-> Pomodoro and a persistent daily water counter. Windows feature parity is in progress.
+> Pomodoro, a persistent daily water counter and standalone reminders. Windows feature parity is in progress.
 
 ## Principles
 
@@ -120,13 +120,13 @@ To build on Windows:
 cargo build --release --locked -p mira-win
 .\target\release\mira-win.exe
 # Optional installer (Inno Setup 6 installed):
-iscc /DMiraVersion=0.2.0 packaging/windows/mira.iss
+iscc /DMiraVersion=0.3.0 packaging/windows/mira.iss
 ```
 
 Move the pointer anywhere on the desktop: the resting eyes follow it smoothly
-and blink. Hover to expand; click the title to cycle Music, Pomodoro and Water.
+and blink. Hover to expand; click the title to cycle Music, Pomodoro, Water and Reminders.
 Click the actions below each page to control playback, start/pause/reset focus,
-or adjust water. Right-click for Exit. Water is stored in `%APPDATA%\Mira\mira.db`;
+or adjust water. In Reminders, use + New to enter a title and a delay in minutes; browse reminders with the arrows, snooze with +5 min or acknowledge with Done. Right-click for Exit. Water is stored in `%APPDATA%\Mira\mira.db`;
 settings, including `language = "ro"` or `"en"`, are read from `config.toml` in
 that folder. The installer preserves this personal data on uninstall.
 
@@ -136,6 +136,26 @@ still Linux-only or pending. Test mixed-DPI displays, a real media player,
 water persistence across restart, hover open/close and installer/uninstaller
 on a Windows machine before wider distribution. Linux cross-compilation checks
 buildability but cannot verify Windows UI behavior.
+
+## Standalone reminders
+
+Reminders have their own page and database table, separate from tasks and timers.
+On GNOME, enter a title and `15m`, `2h`, `30s`, or a local time such as `14:30`
+(a past clock time means tomorrow). Quick presets offer 5, 15, 30 and 60 minutes.
+The next reminder's countdown stays beside the mascot; approaching reminders
+open directly on hover. Eyes turn amber in the last five minutes, coral and more
+restless in the final minute. At expiry the notification appears and the reminder
+stays visible until acknowledged or snoozed for five minutes. Windows provides
+the same urgency colors and mascot movement, with a native creation dialog for
+the title and delay in minutes. Both hosts preserve pending reminders on restart.
+
+To verify the scheduler on an isolated session bus and temporary database:
+
+```sh
+cargo build -p mira-daemon
+node gnome-extension/tests/reminders.test.mjs
+dbus-run-session -- python3 crates/mira-daemon/tests/reminders_dbus.py
+```
 
 ## Roadmap
 

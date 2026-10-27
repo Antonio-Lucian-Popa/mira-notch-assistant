@@ -98,6 +98,9 @@ jobs:
           cargo fmt --check
           cargo test --workspace --locked
           node gnome-extension/tests/gaze.test.mjs
+          node gnome-extension/tests/reminders.test.mjs
+          cargo build --locked -p mira-daemon
+          dbus-run-session -- python3 crates/mira-daemon/tests/reminders_dbus.py
       - name: Build the .deb
         env:
           MIRA_VERSION: ${{ needs.version.outputs.version }}

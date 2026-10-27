@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "mira-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "dirs",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "mira-daemon"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "mira-core",
@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "mira-platform-linux"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "mira-win"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mira-core",
  "windows-sys 0.59.0",

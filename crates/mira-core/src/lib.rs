@@ -18,6 +18,7 @@ pub mod lrclib;
 pub mod lyrics;
 pub mod model;
 pub mod pomodoro;
+pub mod reminder;
 pub mod source;
 pub mod store;
 pub mod tokens;

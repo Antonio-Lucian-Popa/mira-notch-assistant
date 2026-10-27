@@ -1,5 +1,5 @@
 #ifndef MiraVersion
-  #define MiraVersion "0.2.0"
+  #define MiraVersion "0.3.0"
 #endif
 [Setup]
 AppId={{A7D45C2D-6D0E-4C4E-9B20-122C365E49E0}
