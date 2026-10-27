@@ -11,6 +11,15 @@
     <value nick="en" value="2"/>
   </enum>
 
+  <enum id="org.gnome.shell.extensions.mira.colortheme">
+    <value nick="default" value="0"/>
+    <value nick="midnight" value="1"/>
+    <value nick="neon" value="2"/>
+    <value nick="nord" value="3"/>
+    <value nick="dracula" value="4"/>
+    <value nick="sunset" value="5"/>
+  </enum>
+
   <schema id="org.gnome.shell.extensions.mira"
           path="/org/gnome/shell/extensions/mira/">
     <key name="mode" enum="org.gnome.shell.extensions.mira.mode">
@@ -104,6 +113,59 @@
       <default>false</default>
       <summary>Birthday preview trigger</summary>
       <description>Toggled from preferences to preview the birthday confetti greeting.</description>
+    </key>
+
+    <key name="color-theme" enum="org.gnome.shell.extensions.mira.colortheme">
+      <default>'default'</default>
+      <summary>Notch color theme</summary>
+      <description>Accent palette for the notch: default, midnight, neon, nord, dracula or sunset.</description>
+    </key>
+
+    <key name="album-glow" type="b">
+      <default>true</default>
+      <summary>Album-art ambient glow</summary>
+      <description>Tint the notch halo and the progress bar with the dominant color of the current cover art.</description>
+    </key>
+
+    <key name="mascot-groove" type="b">
+      <default>true</default>
+      <summary>Mascot grooves to music</summary>
+      <description>Let the eyes bob gently in time with the beat while music plays.</description>
+    </key>
+
+    <key name="scroll-skip" type="b">
+      <default>true</default>
+      <summary>Scroll the closed notch to skip tracks</summary>
+      <description>While music plays, scrolling over the closed notch skips to the next or previous track instead of changing pages.</description>
+    </key>
+
+    <key name="weather-enabled" type="b">
+      <default>false</default>
+      <summary>Show weather on the summary page</summary>
+      <description>Fetch the current weather from the free open-meteo service for the configured coordinates. No account or key is required.</description>
+    </key>
+
+    <key name="weather-lat" type="d">
+      <range min="-90.0" max="90.0"/>
+      <default>44.43</default>
+      <summary>Weather latitude</summary>
+    </key>
+
+    <key name="weather-lon" type="d">
+      <range min="-180.0" max="180.0"/>
+      <default>26.10</default>
+      <summary>Weather longitude</summary>
+    </key>
+
+    <key name="weather-place" type="s">
+      <default>'București'</default>
+      <summary>Weather place label</summary>
+    </key>
+
+    <key name="hidden-pages" type="s">
+      <default>''</default>
+      <summary>Hidden pages</summary>
+      <description>Comma-separated page names to hide from the tabs and navigation (e.g. "clipboard,search").</description>
     </key>
   </schema>
 </schemalist>

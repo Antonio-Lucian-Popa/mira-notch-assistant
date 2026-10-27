@@ -95,6 +95,80 @@ export default class MiraPreferences extends ExtensionPreferences {
         eyeRow.connect('notify::selected', row => settings.set_string('eye-style', eyeMap[row.selected]));
         group.add(eyeRow);
 
+        // --- Dynamic look & feel ("șmecher") ---
+        const flashGroup = new Adw.PreferencesGroup({
+            title: _('Aspect dinamic'),
+            description: _('Temă de culoare, halou din coperta melodiei, mascota pe ritm și gesturi.'),
+        });
+        page.add(flashGroup);
+
+        const themeKeys = ['default', 'midnight', 'neon', 'nord', 'dracula', 'sunset'];
+        const themeLabels = [_('Implicit'), 'Midnight', 'Neon', 'Nord', 'Dracula', 'Sunset'];
+        const ctRow = new Adw.ComboRow({
+            title: _('Temă de culoare'),
+            subtitle: _('Recolorează inelul, vizualizatorul, pastilele și haloul'),
+            model: new Gtk.StringList({strings: themeLabels}),
+        });
+        ctRow.selected = Math.max(0, themeKeys.indexOf(settings.get_string('color-theme')));
+        ctRow.connect('notify::selected', row => settings.set_string('color-theme', themeKeys[row.selected]));
+        flashGroup.add(ctRow);
+
+        const glowRow = new Adw.SwitchRow({
+            title: _('Halou din coperta melodiei'),
+            subtitle: _('Notch-ul și bara de progres preiau culoarea dominantă a coperții'),
+        });
+        settings.bind('album-glow', glowRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        flashGroup.add(glowRow);
+
+        const grooveRow = new Adw.SwitchRow({
+            title: _('Mascota dansează pe ritm'),
+            subtitle: _('Ochii pulsează ușor în ritmul muzicii'),
+        });
+        settings.bind('mascot-groove', grooveRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        flashGroup.add(grooveRow);
+
+        const skipRow = new Adw.SwitchRow({
+            title: _('Scroll pe notch = schimbă piesa'),
+            subtitle: _('Când cântă muzica, scroll peste notch-ul închis sare la piesa următoare/anterioară'),
+        });
+        settings.bind('scroll-skip', skipRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        flashGroup.add(skipRow);
+
+        const hiddenRow = new Adw.EntryRow({
+            title: _('Pagini ascunse (separate prin virgulă)'),
+        });
+        hiddenRow.text = settings.get_string('hidden-pages');
+        hiddenRow.connect('changed', row => settings.set_string('hidden-pages', row.text.trim()));
+        flashGroup.add(hiddenRow);
+
+        // --- Weather peek ---
+        const weatherGroup = new Adw.PreferencesGroup({
+            title: _('Vremea (pe pagina Rezumat)'),
+            description: _('Date din serviciul gratuit open-meteo, fără cont sau cheie. Introdu coordonatele locului tău.'),
+        });
+        page.add(weatherGroup);
+        const weatherOn = new Adw.SwitchRow({title: _('Arată vremea')});
+        settings.bind('weather-enabled', weatherOn, 'active', Gio.SettingsBindFlags.DEFAULT);
+        weatherGroup.add(weatherOn);
+        const placeRow = new Adw.EntryRow({title: _('Nume loc')});
+        placeRow.text = settings.get_string('weather-place');
+        placeRow.connect('changed', row => settings.set_string('weather-place', row.text));
+        weatherGroup.add(placeRow);
+        const latRow = new Adw.SpinRow({
+            title: _('Latitudine'),
+            adjustment: new Gtk.Adjustment({lower: -90, upper: 90, step_increment: 0.01, page_increment: 1}),
+            digits: 2,
+        });
+        settings.bind('weather-lat', latRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        weatherGroup.add(latRow);
+        const lonRow = new Adw.SpinRow({
+            title: _('Longitudine'),
+            adjustment: new Gtk.Adjustment({lower: -180, upper: 180, step_increment: 0.01, page_increment: 1}),
+            digits: 2,
+        });
+        settings.bind('weather-lon', lonRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        weatherGroup.add(lonRow);
+
         const routineGroup = new Adw.PreferencesGroup({title: _('Prânz și sfârșitul programului'), description: _('Ore locale, cu mesaje animate. Păstrează ultimele notificări chiar și după reconectare.')});
         page.add(routineGroup);
         for (const [key, title] of [['lunch-enabled', 'Anunță-mă la prânz'], ['work-end-enabled', 'Salută-mă la finalul programului'], ['routine-weekdays-only', 'Doar luni–vineri']]) {

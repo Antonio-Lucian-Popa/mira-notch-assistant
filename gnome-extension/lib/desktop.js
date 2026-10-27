@@ -5,6 +5,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import St from 'gi://St';
+import Pango from 'gi://Pango';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
@@ -156,7 +157,7 @@ export class Desktop {
             if (e.get_button() === 3) {this.menu.toggle(); return Clutter.EVENT_STOP;}
             if (e.get_button() !== 1) return Clutter.EVENT_PROPAGATE;
             const source = e.get_source();
-            if(this.n._tabsBox?.contains(source))return Clutter.EVENT_PROPAGATE;
+            if (this.n._tabsBox?.contains(source) || this.n._extraTabs?.contains(source)) return Clutter.EVENT_PROPAGATE;
             const now = e.get_time();
             if (now-this.lastClick < 360) {this.lastClick=0; this.home(); return Clutter.EVENT_STOP;}
             const resizing = this.n._open && x > this.n.x+this.n.width-26 && y > this.n.y+this.n.height-26;
@@ -264,42 +265,113 @@ export class Desktop {
     }
     buildPhone(){
         const page=this.pages.phone;
-        const bar=new St.BoxLayout({style_class:'mira-work-actions'});
-        bar.add_child(this.button('Pornește primirea',()=>this.client.workspace('PhoneStart',[],data=>this.phoneRender(data))));
-        bar.add_child(this.button('Oprește',()=>this.client.workspace('PhoneStop',[],()=>this.phoneRender({running:false}))));
-        bar.add_child(this.button('PDF-uri',()=>{if(this.phoneFolder)Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(this.phoneFolder).get_uri(),global.create_app_launch_context(0,-1));}));
-        bar.add_child(this.button('Revocă asocierea',()=>this.client.workspace('PhoneRevoke',[],()=>this.phoneRender({running:false}))));page.add_child(bar);
-        this.phoneInfo=this.label('Asociază telefonul pentru PDF-uri și acțiunile definite aici. Numai aceeași rețea locală.');page.add_child(this.phoneInfo);
-        const row=new St.BoxLayout({style_class:'mira-work-actions',y_expand:true});
+        const heading = new St.BoxLayout({style_class: 'mira-phone-heading', x_expand: true});
+        const titles = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'mira-phone-titles'});
+        titles.add_child(this.label('Telefonul tău, aproape.', 'mira-section-title'));
+        titles.add_child(this.label('Transcrieri și acțiuni, în aceeași rețea.'));
+        heading.add_child(titles);
+        this.phoneBadge = this.label('● Oprit', 'mira-status-badge');
+        this.phoneBadge.y_align = Clutter.ActorAlign.START;
+        this.phoneBadge.y_expand = false;
+        heading.add_child(this.phoneBadge);
+        page.add_child(heading);
+        const sections = new St.BoxLayout({style_class: 'mira-phone-sections', x_expand: true});
+        this.phonePanels = [];
+        this.phoneSectionButtons = [];
+        const selectSection = index => {
+            this.phonePanels.forEach((panel, i) => {panel.visible = i === index;});
+            this.phoneSectionButtons.forEach((button, i) => {
+                if (i === index) button.add_style_class_name('active');
+                else button.remove_style_class_name('active');
+            });
+            if (this.n._contentScroll) this.n._contentScroll.vscroll.adjustment.value = 0;
+        };
+        ['Asociere', 'Shortcuturi', 'Administrare'].forEach((name, index) => {
+            const button = this.button(name, () => selectSection(index), 'mira-phone-section');
+            button.x_expand = true;
+            sections.add_child(button);
+            this.phoneSectionButtons.push(button);
+        });
+        page.add_child(sections);
+        this.phoneFeedback = this.label('', 'mira-phone-feedback');
+        this.phoneFeedback.clutter_text.single_line_mode = false;
+        this.phoneFeedback.clutter_text.line_wrap = true;
+        this.phoneFeedback.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        this.phoneFeedback.hide();
+        page.add_child(this.phoneFeedback);
+        const connection = new St.BoxLayout({vertical: true, style_class: 'mira-surface', x_expand: true});
+        const bar = new St.BoxLayout({style_class: 'mira-work-actions'});
+        this.phoneStart = this.button('Pornește primirea', () => this.client.workspace('PhoneStart', [], data => this.phoneRender(data)), 'mira-button-primary');
+        this.phoneStop = this.button('Oprește primirea', () => this.client.workspace('PhoneStop', [], () => this.client.workspace('PhoneState', [], data => this.phoneRender(data))));
+        bar.add_child(this.phoneStart);
+        bar.add_child(this.phoneStop);
+        this.phoneStop.hide();
+        this.phonePdf = this.button('Deschide PDF-uri', () => {if (this.phoneFolder) Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(this.phoneFolder).get_uri(), global.create_app_launch_context(0, -1));});
+        bar.add_child(this.phonePdf);
+        connection.add_child(bar);
+        this.phoneInfo = this.label('Pornește primirea pentru a asocia telefonul.');
+        this.phoneInfo.clutter_text.single_line_mode = false;
+        this.phoneInfo.clutter_text.line_wrap = true;
+        this.phoneInfo.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+        this.phoneInfo.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        connection.add_child(this.phoneInfo);
+        const row = new St.BoxLayout({style_class: 'mira-phone-pairing'});
         this.qr=new St.DrawingArea();this.qr.set_size(160,160);this.qr.connect('repaint',()=>{
             if(!this.qrMatrix)return;const cr=this.qr.get_context();const [w,h]=this.qr.get_surface_size();const size=this.qrMatrix.length;const step=Math.min(w,h)/(size+8);cr.setSourceRGB(1,1,1);cr.paint();cr.setSourceRGB(0,0,0);
             this.qrMatrix.forEach((line,y)=>line.forEach((bit,x)=>{if(bit){cr.rectangle((x+4)*step,(y+4)*step,Math.ceil(step),Math.ceil(step));cr.fill();}}));cr.$dispose();
-        });row.add_child(this.qr);
-        const setup=new St.BoxLayout({vertical:true,style_class:'mira-work-page',x_expand:true});
-        setup.add_child(this.button('Copiază codul de asociere',()=>{if(this.pairCode)St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD,this.pairCode);}));
-        this.actionName=new St.Entry({hint_text:'Nume: Plec la baie',can_focus:true,style_class:'mira-work-query'});
-        this.actionKeys=new St.Entry({hint_text:'CTRL+ALT+2',can_focus:true,style_class:'mira-work-query'});setup.add_child(this.actionName);setup.add_child(this.actionKeys);
-        setup.add_child(this.button('Adaugă shortcut',()=>this.client.workspace('PhoneAddAction',[this.actionName.get_text(),this.actionKeys.get_text()],data=>{if(data.error)this.phoneInfo.text=data.error;else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));})));
-        this.phoneList=new St.BoxLayout({vertical:true});setup.add_child(this.phoneList);row.add_child(setup);page.add_child(row);
+        });this.qr.hide();row.add_child(this.qr);
+        const setup=new St.BoxLayout({vertical:true,style_class:'mira-phone-setup',x_expand:true});
+        this.phoneCopy = this.button('Copiază codul de asociere',()=>{if(this.pairCode)St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD,this.pairCode);});
+        setup.add_child(this.phoneCopy);
+        this.phoneCopy.hide();
+        row.add_child(setup); connection.add_child(row); page.add_child(connection);
+        this.phoneManage = new St.BoxLayout({vertical:true, style_class:'mira-surface'});
+        this.phoneManage.add_child(this.label('Revocarea deconectează telefonul asociat.'));
+        this.phoneManage.add_child(this.button('Revocă asocierea',()=>this.client.workspace('PhoneRevoke',[],()=>this.client.workspace('PhoneState',[],d=>this.phoneRender(d))), 'mira-button-danger'));
+        this.phoneManage.hide(); page.add_child(this.phoneManage);
+        const shortcuts = new St.BoxLayout({vertical:true,style_class:'mira-surface'});
+        shortcuts.add_child(this.label('Shortcuturi și scuturare', 'mira-section-subtitle'));
+        const form = new St.BoxLayout({vertical:true,style_class:'mira-phone-setup'});
+        shortcuts.add_child(form); page.add_child(shortcuts);
+        this.actionName=new St.Entry({hint_text:'Numele acțiunii',can_focus:true,style_class:'mira-work-query'});
+        this.actionKeys=new St.Entry({hint_text:'CTRL+ALT+2',can_focus:true,style_class:'mira-work-query'});form.add_child(this.actionName);form.add_child(this.actionKeys);
+        form.add_child(this.button('Adaugă shortcut',()=>this.client.workspace('PhoneAddAction',[this.actionName.get_text(),this.actionKeys.get_text()],data=>{if(data.error)this.phoneError(data.error);else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));})));
+        this.phoneList=new St.BoxLayout({vertical:true,style_class:'mira-shortcut-list'});shortcuts.add_child(this.phoneList);
+        this.phonePanels = [connection, shortcuts, this.phoneManage];
+        selectSection(0);
+    }
+    phoneError(message) {
+        if (!this.alive) return;
+        this.phoneFeedback.text = message;
+        this.phoneFeedback.show();
     }
     phoneRender(data){
         if(!this.alive)return;
-        if(data.error){this.phoneInfo.text=data.error;return;}
+        if(data.error){this.phoneError(data.error);return;}
+        this.phoneFeedback.hide();
         this.phoneFolder=data.directory;this.phoneRunning=!!data.running;this.pairCode=data.code;this.qrMatrix=data.qr;this.qr.visible=!!data.running;this.qr.queue_repaint();this.phoneList.destroy_all_children();
-        this.phoneInfo.text=data.running?`${data.address} · PDF-urile ajung în ${data.directory}`:'Primire oprită. Asocierea acordă acces la transcrieri și la shortcuturile de mai jos.';
+        this.phoneBadge.text = data.running ? '● Primire activă' : '● Oprit';
+        this.phoneBadge.set_style_class_name(`mira-status-badge${data.running ? ' online' : ''}`);
+        this.phoneStart.visible = !data.running;
+        this.phoneStop.visible = !!data.running;
+        this.phoneCopy.visible = !!data.running && !!data.code;
+        this.phonePdf.reactive = !!data.directory;
+        this.phonePdf.can_focus = !!data.directory;
+        this.phoneInfo.text = data.running ? `Scanează codul cu Mira de pe telefon. Adresă locală: ${data.address ?? ''}` : 'Pornește primirea și scanează codul QR din Mira de pe telefon. Folosește aceeași rețea Wi-Fi.';
         const shake=data.shake??{first:'lock',second:'',next_second:false};
-        const update=(first,second)=>this.client.workspace('PhoneSetShake',[first,second],result=>{if(result.error)this.phoneInfo.text=result.error;else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));});
+        const update=(first,second)=>this.client.workspace('PhoneSetShake',[first,second],result=>{if(result.error)this.phoneError(result.error);else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));});
         const status=this.label(!shake.first&&!shake.second?'Scuturare inactivă · alege o acțiune':`Scuturare · urmează ${shake.next_second||!shake.first?'revenirea':'plecarea'} · salvat pe PC`);
         status.clutter_text.line_wrap=true;this.phoneList.add_child(status);
         this.phoneList.add_child(this.button('Resetează la plecare',()=>update(shake.first,shake.second)));
         for(const action of data.actions??[]){
             const card=new St.BoxLayout({vertical:true,style_class:'mira-shake-action'});
-            const title=this.label(`${action.name} · ${action.lock?'blocare PC':action.keys.join('+')}`);
+            const title=this.label(action.name, 'mira-shortcut-name');
+            card.add_child(this.label(action.lock ? 'Blocare PC' : action.keys.join(' + '), 'mira-keycap'));
             title.clutter_text.ellipsize=3;card.add_child(title);
             const choices=new St.BoxLayout({style_class:'mira-shake-choices'});
             choices.add_child(this.button(shake.first===action.id?'✓ Plecare':'Plecare',()=>update(action.id,shake.second)));
             choices.add_child(this.button(shake.second===action.id?'✓ Revenire':'Revenire',()=>update(shake.first,action.id)));
-            choices.add_child(this.button('×',()=>this.client.workspace('PhoneRemoveAction',[action.id],result=>{if(result.error)this.phoneInfo.text=result.error;else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));})));
+            choices.add_child(this.button('×',()=>this.client.workspace('PhoneRemoveAction',[action.id],result=>{if(result.error)this.phoneError(result.error);else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));})));
             card.add_child(choices);this.phoneList.add_child(card);
         }
         this.phoneList.add_child(this.button('Doar plecare · fără alternare',()=>update(shake.first,'')));

@@ -16,6 +16,7 @@ import GObject from 'gi://GObject';
 import St from 'gi://St';
 import Pango from 'gi://Pango';
 import cairo from 'gi://cairo';
+import GdkPixbuf from 'gi://GdkPixbuf';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
@@ -43,6 +44,34 @@ const PAGE_TITLES = {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Accent palettes applied on top of the token colors. 'default' keeps the
+// tokens as-is; the others recolor the live ring, the visualizer, the water
+// and focus accents, pills and the active-tab highlight. The root also gets a
+// `mira-ctheme-<name>` class so the stylesheet can retint matching surfaces.
+const COLOR_THEMES = {
+    default: null,
+    midnight: {accent: '#6AA0FF', ring: '#49C2FF', visualizerBar: '#9CC2FF', water: '#49C2FF', focus: '#FF6B9D', pill: '#16202E', pillHover: '#223047'},
+    neon: {accent: '#B16BFF', ring: '#2EE6A6', visualizerBar: '#FF6BD6', water: '#36E2FF', focus: '#FF5A8A', pill: '#1C1430', pillHover: '#2A1C47'},
+    nord: {accent: '#88C0D0', ring: '#8FBCBB', visualizerBar: '#A3BE8C', water: '#81A1C1', focus: '#BF616A', pill: '#2E3440', pillHover: '#3B4252'},
+    dracula: {accent: '#BD93F9', ring: '#50FA7B', visualizerBar: '#FF79C6', water: '#8BE9FD', focus: '#FF5555', pill: '#282A36', pillHover: '#343746'},
+    sunset: {accent: '#FF8C5A', ring: '#FFC24B', visualizerBar: '#FF9E7A', water: '#FFB24D', focus: '#FF5A5A', pill: '#241612', pillHover: '#38201A'},
+};
+
+// WMO weather codes (open-meteo) condensed to an icon + short Romanian label.
+function weatherText(code) {
+    if (code === 0) return {icon: '☀️', label: 'senin'};
+    if (code <= 2) return {icon: '🌤️', label: 'parțial noros'};
+    if (code === 3) return {icon: '☁️', label: 'noros'};
+    if (code <= 48) return {icon: '🌫️', label: 'ceață'};
+    if (code <= 57) return {icon: '🌦️', label: 'burniță'};
+    if (code <= 67) return {icon: '🌧️', label: 'ploaie'};
+    if (code <= 77) return {icon: '🌨️', label: 'ninsoare'};
+    if (code <= 82) return {icon: '🌧️', label: 'averse'};
+    if (code <= 86) return {icon: '🌨️', label: 'averse de zăpadă'};
+    if (code <= 99) return {icon: '⛈️', label: 'furtună'};
+    return {icon: '🌡️', label: ''};
+}
 
 const ML_PER_GLASS = 250;
 
@@ -125,6 +154,19 @@ class Notch extends St.Bin {
         this._fxActors = [];
         this._monitorsChangedId = 0;
 
+        // Beat/groove + ambient-glow state.
+        this._grooveTimer = 0;
+        this._artColor = null;
+        this._glowRGB = null;
+        this._curRadius = 18;
+        this._dndActive = false;
+        this._weatherFetch = 0;
+
+        // Keep a pristine copy of the token colors so switching themes always
+        // re-derives from the original palette rather than stacking overrides.
+        this._baseColors = Object.assign({}, tokens.colors);
+        this._applyColorTheme();
+
         this._buildContent();
         this._computeSizes();
         this.set_size(this._closed.w, this._closed.h);
@@ -167,7 +209,7 @@ class Notch extends St.Bin {
             y_expand: true,
         });
         this._clock = new St.Label({style_class: 'mira-clock', y_align: Clutter.ActorAlign.CENTER});
-        this._viz = this._buildVisualizer('mira-viz', 5);
+        this._viz = this._buildVisualizer('mira-viz', this._tokens.visualizer?.bars ?? 7);
         this._eyes = this._buildEyes();
         this._closedBox.add_child(this._clock);
         this._closedBox.add_child(this._viz);
@@ -194,7 +236,8 @@ class Notch extends St.Bin {
             y_expand: true,
         });
         this._contentScroll = new St.ScrollView({
-            x_expand: true, y_expand: true, overlay_scrollbars: true,
+            style_class: 'mira-content-scroll',
+            x_expand: true, y_expand: true, overlay_scrollbars: false,
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
         });
@@ -205,6 +248,7 @@ class Notch extends St.Bin {
         this._buildDots();
 
         this._openBox.add_child(this._header);
+        this._openBox.add_child(this._extraScroll);
         this._openBox.add_child(body);
         this._openBox.add_child(this._dots);
         this._openBox.hide();
@@ -270,21 +314,56 @@ class Notch extends St.Bin {
         this._date = new St.Label({style_class: 'mira-date', y_align: Clutter.ActorAlign.CENTER});
         this._time = new St.Label({style_class: 'mira-time', y_align: Clutter.ActorAlign.CENTER});
         const spacer = new St.Widget({x_expand: true});
-        this._headerViz = this._buildVisualizer('mira-header-viz', 4);
+        this._headerViz = this._buildVisualizer('mira-header-viz', this._tokens.visualizer?.bars ?? 7);
 
         this._headerEyes = this._buildEyes();
         this._header.add_child(this._headerEyes);
         this._tabsBox = new St.BoxLayout({style_class:'mira-top-tabs',y_align:Clutter.ActorAlign.CENTER});
-        this._tabActors=[];
-        const icons=['audio-x-generic-symbolic','view-list-symbolic','alarm-symbolic','weather-showers-symbolic','preferences-system-notifications-symbolic','folder-symbolic','checkbox-checked-symbolic','view-statistics-symbolic','document-edit-symbolic','edit-paste-symbolic','system-search-symbolic','phone-symbolic'];
-        const names=['Muzică','Versuri','Focus','Apă','Remindere','Raft','Sarcini','Rezumat','Notițe','Clipboard','Căutare','Telefon'];
-        PAGES.forEach((_name,index)=>{
-            const button=new St.Button({style_class:'mira-top-tab',can_focus:true,accessible_name:names[index],child:new St.Icon({icon_name:icons[index],icon_size:14})});
-            button.connect('clicked',()=>this.setPage(index));
-            this._tabActors.push(button);this._tabsBox.add_child(button);
+        this._tabActors = [];
+        this._tabLabels = [];
+        const icons = ['audio-x-generic-symbolic', 'view-list-symbolic', 'alarm-symbolic', 'weather-showers-symbolic', 'preferences-system-notifications-symbolic', 'folder-symbolic', 'checkbox-checked-symbolic', 'view-statistics-symbolic', 'document-edit-symbolic', 'edit-paste-symbolic', 'system-search-symbolic', 'phone-symbolic'];
+        this._tabNames = ['Muzică', 'Versuri', 'Focus', 'Apă', 'Remindere', 'Raft', 'Sarcini', 'Rezumat', 'Notițe', 'Clipboard', 'Căutare', 'Telefon'];
+        this._primaryTabs = [0, 5, 11];
+        this._extraTabs = new St.BoxLayout({vertical: true, style_class: 'mira-extra-tabs'});
+        const extraRows = [];
+        for (let row = 0; row < 3; row++) {
+            const box = new St.BoxLayout({style_class: 'mira-extra-row', x_expand: true});
+            extraRows.push(box);
+            this._extraTabs.add_child(box);
+        }
+        let extraIndex = 0;
+        this._extraScroll = new St.ScrollView({hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.NEVER});
+        this._extraScroll.set_child(this._extraTabs);
+        this._extraScroll.hide();
+        PAGES.forEach((_name, index) => {
+            const content = new St.BoxLayout({style_class: 'mira-tab-content', y_align: Clutter.ActorAlign.CENTER});
+            content.add_child(new St.Icon({icon_name: icons[index], icon_size: 20}));
+            const label = new St.Label({text: this._tabNames[index], y_align: Clutter.ActorAlign.CENTER});
+            label.hide();
+            content.add_child(label);
+            const button = new St.Button({style_class: 'mira-top-tab', can_focus: true, accessible_name: this._tabNames[index], child: content});
+            button.connect('clicked', () => this.setPage(index));
+            this._tabActors.push(button);
+            this._tabLabels.push(label);
+            if (this._primaryTabs.includes(index)) this._tabsBox.add_child(button);
+            else {
+                button.x_expand = true;
+                extraRows[Math.floor(extraIndex++ / 3)].add_child(button);
+            }
         });
-        const scroll=new St.ScrollView({x_expand:true,y_align:Clutter.ActorAlign.CENTER,hscrollbar_policy:St.PolicyType.EXTERNAL,vscrollbar_policy:St.PolicyType.NEVER});
-        scroll.set_child(this._tabsBox);this._header.add_child(scroll);
+        this._moreButton = new St.Button({style_class: 'mira-top-tab', can_focus: true, accessible_name: 'Mai multe secțiuni'});
+        this._moreContent = new St.BoxLayout({style_class: 'mira-tab-content'});
+        this._moreContent.add_child(new St.Icon({icon_name: 'view-more-symbolic', icon_size: 20}));
+        this._moreLabel = new St.Label({text: 'Mai multe', y_align: Clutter.ActorAlign.CENTER});
+        this._moreContent.add_child(this._moreLabel);
+        this._moreButton.set_child(this._moreContent);
+        this._moreButton.connect('clicked', () => {
+            this._extraScroll.visible = !this._extraScroll.visible;
+            this._moreButton.accessible_name = this._extraScroll.visible ? 'Închide secțiunile suplimentare' : 'Mai multe secțiuni';
+        });
+        this._tabsBox.add_child(this._moreButton);
+        this._tabsBox.x_expand = true;
+        this._header.add_child(this._tabsBox);
         const stamp=new St.BoxLayout({vertical:true,width:60,x_expand:false,y_align:Clutter.ActorAlign.CENTER,style_class:'mira-header-stamp'});
         stamp.add_child(this._time);stamp.add_child(this._date);this._header.add_child(stamp);
     }
@@ -338,6 +417,19 @@ class Notch extends St.Bin {
             box.add_child(eye);
         }
         this._themeEyes(box._eyes, klass === 'mira-greet-eyes');
+        // Easter egg: double-click the eyes for a burst of personality.
+        if (klass === 'mira-eyes') {
+            box.reactive = true;
+            box.connect('button-press-event', (_a, ev) => {
+                if (ev.get_click_count() >= 2) {
+                    this._eggCount = (this._eggCount ?? 0) + 1;
+                    const fun = ['hearts', 'confetti', 'rainbow', 'excited', 'dizzy'];
+                    this._eyeAnim(box._eyes, fun[this._eggCount % fun.length]);
+                    return Clutter.EVENT_STOP;
+                }
+                return Clutter.EVENT_PROPAGATE;
+            });
+        }
         return box;
     }
 
@@ -366,7 +458,7 @@ class Notch extends St.Bin {
         // Progress row.
         const prog = new St.BoxLayout({style_class: 'mira-prog-row', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this._posLabel = new St.Label({style_class: 'mira-time-small', text: '0:00', y_align: Clutter.ActorAlign.CENTER});
-        this._progBar = this._makeBar(this._tokens.colors.text ?? '#F2F2F3');
+        this._progBar = this._makeBar(this._tokens.colors.text ?? '#F2F2F3', 4, frac => this._seekTo(frac));
         this._remLabel = new St.Label({style_class: 'mira-time-small', text: '0:00', y_align: Clutter.ActorAlign.CENTER});
         prog.add_child(this._posLabel);
         prog.add_child(this._progBar.actor);
@@ -379,9 +471,9 @@ class Notch extends St.Bin {
         const spacerL = new St.Widget({x_expand: true});
         const spacerR = new St.Widget({x_expand: true});
         const transport = new St.BoxLayout({style_class: 'mira-controls', y_align: Clutter.ActorAlign.CENTER});
-        this._btnPrev = this._iconButton('media-skip-backward-symbolic', () => this._client.previous());
-        this._btnPlay = this._iconButton('media-playback-start-symbolic', () => this._client.playPause(), 'mira-ctl-btn mira-ctl-play');
-        this._btnNext = this._iconButton('media-skip-forward-symbolic', () => this._client.next());
+        this._btnPrev = this._iconButton('media-skip-backward-symbolic', () => { this._client.previous(); this._react('glanceL'); });
+        this._btnPlay = this._iconButton('media-playback-start-symbolic', () => { this._client.playPause(); this._react(this._playing ? 'blink' : 'squintHappy'); }, 'mira-ctl-btn mira-ctl-play');
+        this._btnNext = this._iconButton('media-skip-forward-symbolic', () => { this._client.next(); this._react('wink'); });
         this._btnPrev.get_child().icon_size=16;this._btnPlay.get_child().icon_size=22;this._btnNext.get_child().icon_size=16;
         transport.add_child(this._btnPrev);
         transport.add_child(this._btnPlay);
@@ -475,9 +567,12 @@ class Notch extends St.Bin {
         pills.add_child(shortBreak);
         pills.add_child(this._focusToggle);
         pills.add_child(focusTime);
+        // One-tap "focus instant": Do-Not-Disturb + start Pomodoro + collapse.
+        const instant = this._pillButton('night-light-symbolic', 'Focus instant', () => this._focusInstant());
         right.add_child(this._focusTime);
         right.add_child(this._focusPhase);
         right.add_child(pills);
+        right.add_child(instant);
 
         page.add_child(ringStack);
         page.add_child(right);
@@ -889,6 +984,9 @@ class Notch extends St.Bin {
         const page = new St.BoxLayout({vertical: true, style_class: 'mira-page mira-summary', x_expand: true});
         this._summaryStatus = new St.Label({text: 'Activitate înregistrată local · fără scoruri și presiune', style_class: 'mira-reminder-feedback'});
         page.add_child(this._summaryStatus);
+        this._weatherLabel = new St.Label({style_class: 'mira-weather', text: ''});
+        this._weatherLabel.hide();
+        page.add_child(this._weatherLabel);
         this._summaryValues = {};
         const rows = [new St.BoxLayout({style_class: 'mira-summary-row', x_expand: true}), new St.BoxLayout({style_class: 'mira-summary-row', x_expand: true})];
         [['focus_seconds','min focus'],['focus_sessions','sesiuni'],['todos_completed','sarcini'],['reminders_completed','remindere'],['water_glasses','pahare']].forEach(([key,label],index) => {
@@ -903,6 +1001,7 @@ class Notch extends St.Bin {
         this._summaryPage = page; this._pageArea.add_child(page);
     }
     refreshSummary() {
+        this._fetchWeather();
         const fetch = ++this._summaryFetch;
         this._client.getSummary(stats => {
             if (!this._reminderAlive || fetch !== this._summaryFetch) return;
@@ -978,16 +1077,20 @@ class Notch extends St.Bin {
     }
 
     // A rounded progress bar backed by a DrawingArea. Returns {actor, set(frac)}.
-    _makeBar(accent, thickness = 4) {
+    // When `onSeek` is given the bar becomes draggable: click or drag sets the
+    // position and reports the fraction (0..1). A hover grows it a touch.
+    _makeBar(accent, thickness = 4, onSeek = null) {
         const area = new St.DrawingArea({style_class: 'mira-bar', x_expand: true});
-        area.set_height(thickness + 2);
+        area.set_height(onSeek ? thickness + 10 : thickness + 2);
         area._frac = 0;
         area._accent = accent;
         area._thick = thickness;
+        area._seekable = !!onSeek;
+        area._hover = false;
         area.connect('repaint', () => {
             const cr = area.get_context();
             const [w, h] = area.get_surface_size();
-            const t = area._thick;
+            const t = area._thick + (area._seekable && area._hover ? 2 : 0);
             const y = (h - t) / 2;
             cr.setSourceRGBA(1, 1, 1, 0.16);
             roundRect(cr, 0, y, w, t, t / 2);
@@ -998,13 +1101,49 @@ class Notch extends St.Bin {
                 roundRect(cr, 0, y, fw, t, t / 2);
                 cr.fill();
             }
+            // Draggable bars show a knob at the play head on hover/drag.
+            if (area._seekable && (area._hover || area._dragging)) {
+                cr.setSourceRGBA(...hex(area._accent));
+                cr.arc(Math.max(fw, 4), h / 2, t / 2 + 2.5, 0, 2 * Math.PI);
+                cr.fill();
+            }
             cr.$dispose();
         });
+        if (onSeek) {
+            area.reactive = true;
+            area.track_hover = true;
+            const fracAt = ev => {
+                const [ax] = area.get_transformed_position();
+                const [px] = ev.get_coords();
+                const w = area.get_width() || 1;
+                return Math.max(0, Math.min(1, (px - ax) / w));
+            };
+            area.connect('notify::hover', () => { area._hover = area.hover; area.queue_repaint(); });
+            area.connect('button-press-event', (_a, ev) => {
+                area._dragging = true;
+                const f = fracAt(ev);
+                area._frac = f; area.queue_repaint();
+                return Clutter.EVENT_STOP;
+            });
+            area.connect('motion-event', (_a, ev) => {
+                if (!area._dragging) return Clutter.EVENT_PROPAGATE;
+                area._frac = fracAt(ev); area.queue_repaint();
+                return Clutter.EVENT_STOP;
+            });
+            area.connect('button-release-event', (_a, ev) => {
+                if (!area._dragging) return Clutter.EVENT_PROPAGATE;
+                area._dragging = false;
+                onSeek(fracAt(ev));
+                return Clutter.EVENT_STOP;
+            });
+        }
         return {
             actor: area,
             set(frac) {
-                area._frac = frac;
-                area.queue_repaint();
+                if (!area._dragging) {
+                    area._frac = frac;
+                    area.queue_repaint();
+                }
             },
         };
     }
@@ -1242,7 +1381,8 @@ class Notch extends St.Bin {
         this.remove_all_transitions();
         const monitor = Main.layoutManager.primaryMonitor;
         const x = this._desktop?.mode !== 'docked' ? this.x : monitor ? Math.round(monitor.x + (monitor.width - size.w) / 2) : this.x;
-        this.set_style(`border-radius:${this._desktop?.mode === 'docked' ? 18 : size.r}px;`);
+        this._curRadius = this._desktop?.mode === 'docked' ? 18 : size.r;
+        this.set_style(this._rootStyle(this._curRadius));
         this.ease({
             x,
             width: size.w,
@@ -1259,7 +1399,17 @@ class Notch extends St.Bin {
         this._page = ((i % n) + n) % n;
         this._showPageActor(this._page);
         if (this._contentScroll) this._contentScroll.vscroll.adjustment.value = 0;
-        this._tabActors?.forEach((tab,index)=>index===this._page?tab.add_style_class_name('active'):tab.remove_style_class_name('active'));
+        this._tabActors?.forEach((tab, index) => {
+            const active = index === this._page;
+            if (active) tab.add_style_class_name('active');
+            else tab.remove_style_class_name('active');
+            this._tabLabels[index].visible = !this._primaryTabs.includes(index) || active;
+        });
+        const secondary = !this._primaryTabs.includes(this._page);
+        this._moreLabel.text = secondary ? this._tabNames[this._page] : 'Mai multe';
+        if (secondary) this._moreButton.add_style_class_name('active');
+        else this._moreButton.remove_style_class_name('active');
+        this._extraScroll.hide();
         this._dotActors.forEach((d, idx) =>
             idx === this._page ? d.add_style_class_name('active') : d.remove_style_class_name('active')
         );
@@ -1330,10 +1480,17 @@ class Notch extends St.Bin {
         if (this._open && !this._header.contains(ev.get_source()))
             return Clutter.EVENT_PROPAGATE;
         const dir = ev.get_scroll_direction();
-        if (dir === Clutter.ScrollDirection.UP || dir === Clutter.ScrollDirection.LEFT)
-            this.setPage(this._page - 1);
-        else if (dir === Clutter.ScrollDirection.DOWN || dir === Clutter.ScrollDirection.RIGHT)
-            this.setPage(this._page + 1);
+        const back = dir === Clutter.ScrollDirection.UP || dir === Clutter.ScrollDirection.LEFT;
+        const fwd = dir === Clutter.ScrollDirection.DOWN || dir === Clutter.ScrollDirection.RIGHT;
+        if (!back && !fwd)
+            return Clutter.EVENT_PROPAGATE;
+        // Closed + playing: scrolling skips tracks instead of flipping pages.
+        if (!this._open && this._playing && this._settings.get_boolean('scroll-skip')) {
+            if (back) { this._client.previous(); this._react('glanceL'); }
+            else { this._client.next(); this._react('wink'); }
+            return Clutter.EVENT_STOP;
+        }
+        this.setPage(this._nextVisible(this._page, back ? -1 : 1));
         return Clutter.EVENT_STOP;
     }
 
@@ -1352,9 +1509,9 @@ class Notch extends St.Bin {
             return Clutter.EVENT_STOP;
         }
         if (sym === Clutter.KEY_Left)
-            this.setPage(this._page - 1);
+            this.setPage(this._nextVisible(this._page, -1));
         else if (sym === Clutter.KEY_Right)
-            this.setPage(this._page + 1);
+            this.setPage(this._nextVisible(this._page, 1));
         else
             return Clutter.EVENT_PROPAGATE;
         return Clutter.EVENT_STOP;
@@ -1429,6 +1586,8 @@ class Notch extends St.Bin {
             this._art.set_style('');
             this._art.add_style_class_name('mira-art-empty');
             this._artIcon.show();
+            this._glowRGB = null;
+            this._applyGlow();
             return;
         }
         if (url.startsWith('file://')) {
@@ -1453,6 +1612,8 @@ class Notch extends St.Bin {
         this._artIcon.hide();
         const uri = GLib.filename_to_uri(path, null);
         this._art.set_style(`background-image:url("${uri}");background-size:cover;background-position:center;`);
+        this._glowRGB = this._computeArtColor(path);
+        this._applyGlow();
     }
 
     _downloadArt(url, token) {
@@ -1521,6 +1682,17 @@ class Notch extends St.Bin {
         this._posLabel.text = this._fmtTime(posS);
         this._remLabel.text = b.len > 0 ? `-${this._fmtTime(lenS - posS)}` : this._fmtTime(posS);
         this._progBar.set(b.len > 0 ? cur / b.len : 0);
+    }
+
+    // Seek to a fraction of the current track (from the draggable progress bar).
+    _seekTo(frac) {
+        const b = this._progBase;
+        if (!b || b.len <= 0 || !this._media?.canSeek)
+            return;
+        const micros = Math.round(Math.max(0, Math.min(1, frac)) * b.len);
+        this._client.setPosition(micros);
+        this._progBase = {pos: micros, len: b.len, at: Date.now(), playing: b.playing};
+        this._updateProgress();
     }
 
     _updateClosedVisual() {
@@ -1911,19 +2083,42 @@ class Notch extends St.Bin {
         }
     }
 
+    // A 0..1 beat pulse derived from the monotonic clock so the bars and the
+    // mascot groove share the same phase. Sharp attack, quick decay — a "thump".
+    _beat() {
+        const bpm = this._tokens.visualizer?.beatBpm ?? 120;
+        const period = 60e6 / bpm; // microseconds per beat
+        const t = (GLib.get_monotonic_time() % period) / period;
+        return Math.pow(1 - t, 2.2);
+    }
+
+    // A symmetric, center-weighted bar shape so the waveform looks like a real
+    // spectrum (tall in the middle, short at the edges) instead of noise.
+    _vizHeight(index, count, min, max, beat) {
+        const center = (count - 1) / 2;
+        const weight = 1 - Math.abs(index - center) / (center + 0.8); // 0..1
+        const span = max - min;
+        const wobble = 0.35 + 0.65 * Math.random();
+        const h = min + span * (0.25 + 0.75 * weight) * wobble + span * 0.4 * beat * weight;
+        return Math.max(min, Math.min(max, h));
+    }
+
     // --- closed visualizer (only while playing) ---
     _startVisualizer() {
         if (this._vizTimer)
             return;
-        const v = this._tokens.visualizer ?? {fps: 30, minHeight: 3, maxHeight: 14};
+        const v = this._tokens.visualizer ?? {fps: 30, minHeight: 3, maxHeight: 18};
         const interval = Math.max(33, Math.round(1000 / (v.fps ?? 30)));
+        const n = this._viz._bars.length;
         this._vizTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, interval, () => {
-            for (const bar of this._viz._bars) {
-                const h = (v.minHeight ?? 3) + Math.random() * ((v.maxHeight ?? 14) - (v.minHeight ?? 3));
+            const beat = this._beat();
+            this._viz._bars.forEach((bar, i) => {
+                const h = this._vizHeight(i, n, v.minHeight ?? 3, v.maxHeight ?? 18, beat);
                 bar.ease({height: h, duration: interval, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
-            }
+            });
             return GLib.SOURCE_CONTINUE;
         });
+        this._startGroove();
     }
 
     _stopVisualizer() {
@@ -1931,18 +2126,21 @@ class Notch extends St.Bin {
             GLib.source_remove(this._vizTimer);
             this._vizTimer = 0;
         }
+        this._stopGroove();
     }
 
     // Header visualizer: animates only while the notch is open.
     _startHeaderViz() {
         if (this._headerVizTimer)
             return;
+        const n = this._headerViz._bars.length;
         this._headerVizTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 90, () => {
             const active = this._playing;
-            for (const bar of this._headerViz._bars) {
-                const h = active ? 3 + Math.random() * 13 : 3 + Math.random() * 4;
+            const beat = active ? this._beat() : 0;
+            this._headerViz._bars.forEach((bar, i) => {
+                const h = active ? this._vizHeight(i, n, 3, 16, beat) : 3 + Math.random() * 4;
                 bar.ease({height: h, duration: 90, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
-            }
+            });
             return GLib.SOURCE_CONTINUE;
         });
     }
@@ -1952,6 +2150,244 @@ class Notch extends St.Bin {
             GLib.source_remove(this._headerVizTimer);
             this._headerVizTimer = 0;
         }
+    }
+
+    // --- beat-reactive mascot: the eyes bob in time with the music ----------
+    _startGroove() {
+        if (this._grooveTimer)
+            return;
+        if (!this._settings.get_boolean('mascot-groove'))
+            return;
+        if (this._settings.get_double('motion-intensity') <= 0)
+            return;
+        this._grooveTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 45, () => {
+            this._grooveTick();
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _grooveTick() {
+        // Pulse the eye *container* scale: the gaze eases the parent's
+        // translation and personality anims drive each eye, so scaling the box
+        // composes with both without a fight.
+        const box = this._open ? this._headerEyes : this._eyes;
+        if (!box || !box.visible || !this._playing)
+            return;
+        const amp = 0.14 * this._settings.get_double('motion-intensity');
+        const b = this._beat();
+        box.set_pivot_point(0.5, 0.65);
+        box.scale_y = 1 + b * amp;
+        box.scale_x = 1 + b * amp * 0.35;
+    }
+
+    _stopGroove() {
+        if (this._grooveTimer) {
+            GLib.source_remove(this._grooveTimer);
+            this._grooveTimer = 0;
+        }
+        for (const box of [this._eyes, this._headerEyes]) {
+            if (!box) continue;
+            box.scale_x = 1;
+            box.scale_y = 1;
+        }
+    }
+
+    // Play a short expression on whichever eyes are currently on screen — used
+    // for contextual reactions (skip a track, start playback, an alert).
+    _react(name) {
+        if (this._settings.get_double('motion-intensity') <= 0)
+            return;
+        if (this._reminderUrgency !== 'calm')
+            return;
+        const eyes = this._open ? this._headerEyes?._eyes : this._eyes?._eyes;
+        if (!eyes || (!this._open && !this._eyes?.visible))
+            return;
+        this._eyeAnim(eyes, name);
+    }
+
+    // --- ambient album glow -------------------------------------------------
+    // Pick a vivid, bright representative color from a downscaled cover so the
+    // halo reads as "the color of the song", not a muddy average.
+    _computeArtColor(path) {
+        try {
+            const pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 24, 24, false);
+            const px = pb.get_pixels();
+            const ch = pb.get_n_channels();
+            const stride = pb.get_rowstride();
+            const w = pb.get_width();
+            const h = pb.get_height();
+            let r = 0, g = 0, b = 0, wsum = 0;
+            let ar = 0, ag = 0, ab = 0, an = 0;
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const o = y * stride + x * ch;
+                    const rr = px[o], gg = px[o + 1], bb = px[o + 2];
+                    ar += rr; ag += gg; ab += bb; an++;
+                    const mx = Math.max(rr, gg, bb), mn = Math.min(rr, gg, bb);
+                    const sat = mx === 0 ? 0 : (mx - mn) / mx;
+                    const weight = sat * sat * (mx / 255);
+                    r += rr * weight; g += gg * weight; b += bb * weight; wsum += weight;
+                }
+            }
+            let out;
+            if (wsum > 0.5)
+                out = [r / wsum, g / wsum, b / wsum];
+            else if (an > 0)
+                out = [ar / an, ag / an, ab / an];
+            else
+                return null;
+            // Lift very dark results so the glow stays visible on dark chrome.
+            const lum = 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2];
+            if (lum < 70) {
+                const k = 70 / Math.max(1, lum);
+                out = out.map(c => Math.min(255, c * k));
+            }
+            return out.map(c => Math.round(c));
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    // The root pill's inline style: border-radius plus, when enabled, a soft
+    // colored halo from the cover art. Inline style always wins over the sheet.
+    _rootStyle(radius) {
+        let s = `border-radius:${radius}px;`;
+        if (this._glowRGB && this._settings.get_boolean('album-glow') && this._playing) {
+            const [r, g, b] = this._glowRGB;
+            s += `box-shadow:0 0 0 1px rgba(${r},${g},${b},0.33), 0 10px 44px 2px rgba(${r},${g},${b},0.30), 0 14px 34px 0 rgba(0,0,0,0.42);`;
+            s += `border:1px solid rgba(${r},${g},${b},0.28);`;
+        }
+        return s;
+    }
+
+    _applyGlow() {
+        // Only touch the root's inline style while a glow is active or while
+        // one is being cleared, so the resting pill keeps its stylesheet shape.
+        const active = !!(this._glowRGB && this._settings.get_boolean('album-glow') && this._playing);
+        if (active || this._glowApplied) {
+            this.set_style(this._rootStyle(this._curRadius));
+            this._glowApplied = active;
+        }
+        // Tint the music progress bar with the song color for the full effect.
+        if (this._progBar?.actor) {
+            const useArt = this._glowRGB && this._settings.get_boolean('album-glow');
+            this._progBar.actor._accent = useArt
+                ? `#${this._glowRGB.map(c => c.toString(16).padStart(2, '0')).join('')}`
+                : (this._tokens.colors.text ?? '#F2F2F3');
+            this._progBar.actor.queue_repaint();
+        }
+    }
+
+    // --- color theme --------------------------------------------------------
+    _applyColorTheme() {
+        const name = this._settings.get_string('color-theme');
+        const palette = COLOR_THEMES[name] ?? null;
+        this._tokens.colors = Object.assign({}, this._baseColors, palette || {});
+        // Root class lets the stylesheet retint CSS-only surfaces (viz bars,
+        // active tab, dots). Cairo-drawn bits read this._tokens.colors directly.
+        if (this._stack) {
+            for (const key of Object.keys(COLOR_THEMES))
+                this.remove_style_class_name(`mira-ctheme-${key}`);
+            this.add_style_class_name(`mira-ctheme-${COLOR_THEMES[name] ? name : 'default'}`);
+        }
+    }
+
+    // --- weather peek (open-meteo, no key, opt-in) --------------------------
+    _fetchWeather() {
+        if (!this._weatherLabel)
+            return;
+        if (!this._settings.get_boolean('weather-enabled')) {
+            this._weatherLabel.hide();
+            return;
+        }
+        const lat = this._settings.get_double('weather-lat');
+        const lon = this._settings.get_double('weather-lon');
+        const place = this._settings.get_string('weather-place');
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+        const fetch = ++this._weatherFetch;
+        this._weatherLabel.show();
+        this._weatherLabel.text = '⛅ Vremea se încarcă…';
+        try {
+            Gio.File.new_for_uri(url).load_contents_async(null, (file, res) => {
+                if (!this._reminderAlive || fetch !== this._weatherFetch)
+                    return;
+                try {
+                    const [ok, contents] = file.load_contents_finish(res);
+                    if (!ok) throw new Error('no data');
+                    const data = JSON.parse(new TextDecoder().decode(contents));
+                    const cw = data.current_weather;
+                    const w = weatherText(cw.weathercode);
+                    this._weatherLabel.text = `${w.icon} ${Math.round(cw.temperature)}°C · ${w.label} · ${place}`;
+                } catch (_e) {
+                    this._weatherLabel.text = '🌡️ Vremea indisponibilă';
+                }
+            });
+        } catch (_e) {
+            this._weatherLabel.text = '🌡️ Vremea indisponibilă';
+        }
+    }
+
+    // --- focus instant: Do-Not-Disturb + Pomodoro in one tap ----------------
+    _focusInstant() {
+        try {
+            const n = new Gio.Settings({schema_id: 'org.gnome.desktop.notifications'});
+            if (!this._dndActive) {
+                this._dndPrev = n.get_boolean('show-banners');
+                n.set_boolean('show-banners', false);
+                this._dndActive = true;
+                if (!this._client.pomodoro().running)
+                    this._client.pomoToggle();
+                Main.notify('Mira', 'Focus instant pornit · notificările sunt pe pauză');
+                this._react('focus');
+                this.close();
+            } else {
+                n.set_boolean('show-banners', this._dndPrev ?? true);
+                this._dndActive = false;
+                Main.notify('Mira', 'Focus instant oprit · notificările sunt active');
+            }
+        } catch (_e) {
+            Main.notify('Mira', 'Nu pot comuta modul „nu deranja” pe acest sistem');
+        }
+    }
+
+    _restoreDnd() {
+        if (!this._dndActive)
+            return;
+        try {
+            new Gio.Settings({schema_id: 'org.gnome.desktop.notifications'})
+                .set_boolean('show-banners', this._dndPrev ?? true);
+        } catch (_e) {}
+        this._dndActive = false;
+    }
+
+    // --- hideable pages -----------------------------------------------------
+    _hiddenPages() {
+        return (this._settings.get_string('hidden-pages') || '')
+            .split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    _isHidden(index) {
+        return this._hiddenPages().includes(PAGES[index]);
+    }
+
+    // Next visible page index in a direction, skipping hidden ones.
+    _nextVisible(from, dir) {
+        const n = PAGES.length;
+        let i = from;
+        for (let step = 0; step < n; step++) {
+            i = ((i + dir) % n + n) % n;
+            if (!this._isHidden(i))
+                return i;
+        }
+        return from;
+    }
+
+    _applyHiddenPages() {
+        if (!this._tabActors)
+            return;
+        this._tabActors.forEach((tab, i) => { tab.visible = !this._isHidden(i); });
+        if (this._isHidden(this._page))
+            this.setPage(this._nextVisible(this._page, 1));
     }
 
     // --- water log (local hourly record for the chart) ---
@@ -2367,6 +2803,7 @@ class Notch extends St.Bin {
 
     // --- settings / teardown ---
     applySettings() {
+        this._applyColorTheme();
         this._themeEyes(this._eyes._eyes);
         this._themeEyes(this._greetEyes._eyes, true);
         if (this._headerEyes) this._themeEyes(this._headerEyes._eyes);
@@ -2376,6 +2813,11 @@ class Notch extends St.Bin {
         this.set_size(size.w, size.h);
         this._reposition(size.w);
         this._refreshMedia();
+        this._applyGlow();
+        this._applyHiddenPages();
+        // Honor a toggled groove / motion change without waiting for a track.
+        this._stopGroove();
+        if (this._playing) this._startGroove();
         this._resetIdle();
         this._scheduleGreeting();
         this._tickRoutines();
@@ -2383,6 +2825,8 @@ class Notch extends St.Bin {
 
     _onDestroy() {
         this._desktop?.destroy();
+        this._stopGroove();
+        this._restoreDnd();
         this._reminderAlive = false;
         this._summaryFetch++;
         if (this._naturalPreviewTimer) GLib.source_remove(this._naturalPreviewTimer);

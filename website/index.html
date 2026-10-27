@@ -4,13 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Mira — a dynamic-island notch for your desktop</title>
-<meta name="description" content="Mira is a lightweight, local-first dynamic-island notch for GNOME and a native Windows preview. Music, synced lyrics, Pomodoro, water, standalone reminders, lunch and end-of-work greetings, to-dos, a file shelf and a mascot that blinks, follows your cursor and throws confetti on your birthday. Open source, no telemetry." />
+<meta name="description" content="Mira is a lightweight, local-first dynamic-island notch for GNOME and a native Windows preview. Music with a cover-art glow and scrubbable seek, synced lyrics, a beat-reactive mascot, six color themes, Pomodoro with one-tap focus mode, water, standalone reminders, a weather peek, to-dos and a file shelf. Open source, no telemetry." />
 <meta name="theme-color" content="#0a0a0b" />
 
 <!-- Open Graph -->
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Mira — a dynamic-island notch for your desktop" />
-<meta property="og:description" content="A lightweight, local-first notch for GNOME and a Windows preview. Music, lyrics, timers, and a mascot with a personality. Open source." />
+<meta property="og:description" content="A lightweight, local-first notch for GNOME and a Windows preview. Cover-art glow, a beat-reactive mascot, six color themes, scrubbable music, a weather peek and more. Open source." />
 <meta property="og:image" content="assets/og.svg" />
 
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
@@ -38,6 +38,7 @@
     <a href="#features">Features</a>
     <a href="#screens">Screens</a>
     <a href="#mascot">Mascot</a>
+    <a href="#themes">Themes</a>
     <a href="#how">How it works</a>
     <a href="#install">Install</a>
     <a href="#roadmap">Roadmap</a>
@@ -57,7 +58,7 @@
   <div class="hero-copy reveal">
     <span class="pill-badge"><span class="dot"></span> Open source · GNOME + <strong>Windows preview</strong></span>
     <h1>The notch your<br><span class="grad">desktop was missing.</span></h1>
-    <p class="lead">Mira is a lightweight “dynamic island” that lives at the top of your screen. Music, synced lyrics, a Pomodoro timer, water tracking, standalone reminders, to-dos and a file shelf — plus a tiny mascot that blinks, follows your cursor and throws confetti on your birthday. Add your lunch hour and end of work to make room for a kinder daily rhythm.</p>
+    <p class="lead">Mira is a lightweight “dynamic island” that lives at the top of your screen. Music that paints the notch with the <strong>color of your cover art</strong>, a mascot that <strong>bobs to the beat</strong>, six color themes, scrubbable playback, a Pomodoro with one-tap focus mode, water, reminders, a weather peek and a file shelf — in a feather-light native app with zero telemetry.</p>
     <div class="hero-actions">
       <a class="btn btn-primary" href="#install">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a2.4 2.4 0 0 0-2.1 1.2c-.9 0-1.7.5-2 1.4-.9.1-1.6.7-1.8 1.6-1 1-1 2.6 0 3.6-.3 1 .1 2 .9 2.6.1.9.8 1.6 1.7 1.8.3.9 1.1 1.5 2 1.5h.5l-.4 2.5-1.6.3v1.2h5.6v-1.2l-1.6-.3-.4-2.5h.5c.9 0 1.7-.6 2-1.5.9-.2 1.6-.9 1.7-1.8.8-.6 1.2-1.6.9-2.6 1-1 1-2.6 0-3.6-.2-.9-.9-1.5-1.8-1.6-.3-.9-1.1-1.4-2-1.4A2.4 2.4 0 0 0 12 2Z"/></svg>
@@ -75,12 +76,12 @@
 
   <!-- live notch demo -->
   <div class="hero-demo reveal" id="heroDemo">
-    <div class="notch" id="notch">
+    <div class="notch glow" id="notch">
       <div class="notch-header">
         <span class="ring" aria-hidden="true"></span>
         <span class="date" id="demoDate">Mon 26 Oct 2026</span>
         <span class="time" id="demoTime">19:19</span>
-        <span class="viz" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="viz" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
       </div>
       <div class="notch-body">
         <div class="art" aria-hidden="true">
@@ -122,6 +123,12 @@
     <p>Each tool is a swipeable page inside the notch. Scroll or use the arrows — it expands on hover and collapses when you’re done.</p>
   </div>
   <div class="grid features">
+    <article class="card reveal is-new"><span class="new-tag">Nou</span><div class="ic ic-music">🌈</div><h3>Album-art glow</h3><p>The notch and the progress bar take on the dominant color of the current cover art — a living halo that shifts with every song.</p></article>
+    <article class="card reveal is-new"><span class="new-tag">Nou</span><div class="ic ic-eyes">🎵</div><h3>Beat-reactive mascot</h3><p>While music plays, the eyes gently bob in time with the beat. Skip a track and they wink; start playback and they smile.</p></article>
+    <article class="card reveal is-new"><span class="new-tag">Nou</span><div class="ic ic-lyrics">🎨</div><h3>Six color themes</h3><p>Default, Midnight, Neon, Nord, Dracula and Sunset recolor the ring, visualizer, pills and highlights — pick your vibe.</p></article>
+    <article class="card reveal is-new"><span class="new-tag">Nou</span><div class="ic ic-focus">⚡</div><h3>One-tap focus mode</h3><p>“Focus instant” flips on Do-Not-Disturb, starts a Pomodoro and tucks the notch away — all in a single tap.</p></article>
+    <article class="card reveal is-new"><span class="new-tag">Nou</span><div class="ic ic-music">⏩</div><h3>Scrub &amp; skip</h3><p>Drag the progress bar to seek anywhere in a track, or scroll over the closed notch to skip songs without opening it.</p></article>
+    <article class="card reveal is-new"><span class="new-tag">Nou</span><div class="ic ic-water">⛅</div><h3>Weather peek</h3><p>An optional current-weather line on your day page, from the free open-meteo service — no account, no key, local-first.</p></article>
     <article class="card reveal"><div class="ic ic-music">♪</div><h3>Music &amp; controls</h3><p>Follows active MPRIS players, including Brave, Chrome, Firefox and Spotify, with album art, scrubbable progress and play/next/prev.</p></article>
     <article class="card reveal"><div class="ic ic-lyrics">“”</div><h3>Synced lyrics</h3><p>Time-synced lyrics from LRCLIB, with manual title + artist lookup when a browser hides or omits metadata. Available on GNOME.</p></article>
     <article class="card reveal"><div class="ic ic-focus">◉</div><h3>Pomodoro focus</h3><p>A focus ring with work / short &amp; long breaks, right where you glance a hundred times a day.</p></article>
@@ -160,7 +167,7 @@
     <div class="stage">
       <!-- music -->
       <div class="mock is-active" data-screen="music">
-        <div class="m-head"><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:19</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-head"><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:19</b><span class="viz"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
         <div class="m-music">
           <div class="m-art">♪</div>
           <div class="m-info"><div class="m-title">Paper Sky</div><div class="m-sub">Lumen Coast — Summer Flows</div><div class="m-bar"><span style="width:62%"></span></div><div class="m-times"><span>03:13</span><span>-01:03</span></div></div>
@@ -185,7 +192,7 @@
       </div>
       <!-- focus -->
       <div class="mock" data-screen="focus">
-        <div class="m-head"><b>Pomodoro</b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:20</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-head"><b>Pomodoro</b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:20</b><span class="viz"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
         <div class="m-focus">
           <div class="focus-ring"><div class="focus-ico">◷</div></div>
           <div class="focus-right"><div class="focus-time">25:00</div><div class="focus-phase">Focus time</div><div class="pills"><span class="pill">Short Break</span><span class="pill pill-red">▶</span><span class="pill">Focus Time</span></div></div>
@@ -193,7 +200,7 @@
       </div>
       <!-- water -->
       <div class="mock" data-screen="water">
-        <div class="m-head"><b>Water <span class="blue">Reminder</span></b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-head"><b>Water <span class="blue">Reminder</span></b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
         <div class="m-water">
           <div class="water-left"><div class="water-amt">1.5 <small>/ 1.5 L</small></div><div class="water-status">Today · <b class="blue">100%</b> · Goal reached</div><div class="m-bar blue"><span style="width:100%"></span></div><div class="pills"><span class="pill pill-blue">💧 Drink</span><span class="pill">Settings</span></div></div>
           <div class="water-chart"><i style="height:60%"></i><i style="height:45%"></i><i style="height:90%"></i><i style="height:40%"></i><i style="height:35%"></i><i style="height:48%"></i><i style="height:70%"></i><i style="height:38%"></i></div>
@@ -201,7 +208,7 @@
       </div>
       <!-- todo -->
       <div class="mock" data-screen="todo">
-        <div class="m-head"><b>Todo<span class="green">List</span></b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-head"><b>Todo<span class="green">List</span></b><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
         <div class="m-todo">
           <div class="todo-left"><div class="todo-count">4/5</div><div class="todo-sub">Task Done Today</div><div class="pills"><span class="pill">＋ Add</span><span class="pill">✎ Edit</span></div></div>
           <div class="todo-list"><div class="trow done">✓ <s>Revise the report</s></div><div class="trow done">✓ <s>Reply to Dina</s></div><div class="trow done">✓ <s>Post weekly update</s></div><div class="trow">○ Water the plants</div></div>
@@ -209,7 +216,7 @@
       </div>
       <!-- shelf -->
       <div class="mock" data-screen="shelf">
-        <div class="m-head"><b>Shelf</b> <span class="pill small">Clear</span><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i></span></div>
+        <div class="m-head"><b>Shelf</b> <span class="pill small">Clear</span><span class="ring"></span><span>Mon 26 Oct 2026</span><b>19:21</b><span class="viz"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
         <div class="m-shelf">
           <div class="shelf-card"><div class="shelf-thumb">🏖️</div><div class="shelf-name">beach.jpg</div><div class="shelf-size">2.4 MB</div></div>
           <div class="shelf-card"><div class="shelf-thumb">📄</div><div class="shelf-name">notes.md</div><div class="shelf-size">8 KB</div></div>
@@ -242,6 +249,23 @@
       <div class="big-eyes" id="bigEyes"><i></i><i></i></div>
       <p class="mascot-cap">On your birthday at 8:20, this bursts into confetti and says <b>“La mulți ani, &lt;you&gt;”</b>.</p>
     </div>
+  </div>
+</section>
+
+<!-- ===== THEMES ===== -->
+<section id="themes" class="section">
+  <div class="section-head reveal">
+    <span class="eyebrow">Make it yours</span>
+    <h2>Six themes. <span class="grad">One click.</span></h2>
+    <p>Recolor the live ring, visualizer, pills and highlights to match your desktop — or let the album-art glow drive the mood automatically.</p>
+  </div>
+  <div class="theme-gallery reveal">
+    <div class="theme-swatch"><div class="sw-row"><i style="background:#5B8CFF"></i><i style="background:#2EE6A6"></i><i style="background:#3B9CFF"></i></div><b>Default</b></div>
+    <div class="theme-swatch"><div class="sw-row"><i style="background:#6AA0FF"></i><i style="background:#49C2FF"></i><i style="background:#FF6B9D"></i></div><b>Midnight</b></div>
+    <div class="theme-swatch"><div class="sw-row"><i style="background:#B16BFF"></i><i style="background:#FF6BD6"></i><i style="background:#36E2FF"></i></div><b>Neon</b></div>
+    <div class="theme-swatch"><div class="sw-row"><i style="background:#88C0D0"></i><i style="background:#A3BE8C"></i><i style="background:#81A1C1"></i></div><b>Nord</b></div>
+    <div class="theme-swatch"><div class="sw-row"><i style="background:#BD93F9"></i><i style="background:#50FA7B"></i><i style="background:#FF79C6"></i></div><b>Dracula</b></div>
+    <div class="theme-swatch"><div class="sw-row"><i style="background:#FF8C5A"></i><i style="background:#FFC24B"></i><i style="background:#FFB24D"></i></div><b>Sunset</b></div>
   </div>
 </section>
 
@@ -314,6 +338,7 @@ gnome-extensions enable mira@novabytecode.ro</code></pre>
     <li class="reveal done"><span class="t-dot"></span><h3>Phase 2 tools</h3><p>Pomodoro, water, to-dos, file shelf, and the living mascot with greetings &amp; birthday confetti.</p></li>
     <li class="reveal now"><span class="t-dot"></span><h3>Polishing &amp; packaging</h3><p>Debian packages and a Windows per-user installer, plus standalone reminders with an expressive countdown.</p></li>
     <li class="reveal now"><span class="t-dot"></span><h3>Browser reliability &amp; daily rhythm</h3><p>Multi-player selection, explicit lyric lookup for private sessions, lunch reminders and end-of-work greetings on GNOME.</p></li>
+    <li class="reveal done"><span class="t-dot"></span><h3>Dynamic flair</h3><p>Cover-art glow, a beat-reactive mascot, six color themes, scrubbable seek, scroll-to-skip, one-tap focus mode and a weather peek.</p></li>
     <li class="reveal next"><span class="t-dot"></span><h3>Windows feature parity</h3><p>Add native media metadata, lyrics, tray integration and the rest of the GNOME tools to the current Windows preview.</p></li>
   </ol>
 </section>
