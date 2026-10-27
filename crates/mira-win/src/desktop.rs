@@ -17,6 +17,10 @@ use windows_sys::Win32::{
 };
 
 pub struct Desktop {
+    pub receiver: Option<mira_core::bridge::Receiver>,
+    pub phone_name: HWND,
+    pub phone_keys: HWND,
+    pub phone_code: HWND,
     pub state: Workspace,
     pub shelf_offset: usize,
     pub mode: String,
@@ -56,6 +60,10 @@ pub struct Drag {
 impl Desktop {
     pub fn new() -> Self {
         Self {
+            receiver: None,
+            phone_name: null_mut(),
+            phone_keys: null_mut(),
+            phone_code: null_mut(),
             state: Workspace::new(),
             shelf_offset: 0,
             mode: "follow".into(),
@@ -84,6 +92,48 @@ impl Desktop {
     }
     pub unsafe fn controls(&mut self, hwnd: HWND, open: bool, page: usize, scale: f32) {
         if self.note.is_null() {
+            self.phone_name = CreateWindowExW(
+                WS_EX_CLIENTEDGE,
+                wide("EDIT").as_ptr(),
+                null(),
+                WS_CHILD | ES_AUTOHSCROLL as u32,
+                0,
+                0,
+                0,
+                0,
+                hwnd,
+                404usize as HMENU,
+                null_mut(),
+                null(),
+            );
+            self.phone_keys = CreateWindowExW(
+                WS_EX_CLIENTEDGE,
+                wide("EDIT").as_ptr(),
+                wide("CTRL+ALT+2").as_ptr(),
+                WS_CHILD | ES_AUTOHSCROLL as u32,
+                0,
+                0,
+                0,
+                0,
+                hwnd,
+                405usize as HMENU,
+                null_mut(),
+                null(),
+            );
+            self.phone_code = CreateWindowExW(
+                WS_EX_CLIENTEDGE,
+                wide("EDIT").as_ptr(),
+                null(),
+                WS_CHILD | ES_MULTILINE as u32 | ES_READONLY as u32,
+                0,
+                0,
+                0,
+                0,
+                hwnd,
+                406usize as HMENU,
+                null_mut(),
+                null(),
+            );
             self.note = CreateWindowExW(
                 WS_EX_CLIENTEDGE,
                 wide("EDIT").as_ptr(),
@@ -138,6 +188,39 @@ impl Desktop {
             }
         }
         let (w, h) = (self.width, self.height);
+        MoveWindow(
+            self.phone_name,
+            (230. * scale) as i32,
+            (126. * scale) as i32,
+            ((w - 252.) * scale) as i32,
+            (30. * scale) as i32,
+            1,
+        );
+        MoveWindow(
+            self.phone_keys,
+            (230. * scale) as i32,
+            (165. * scale) as i32,
+            ((w - 252.) * scale) as i32,
+            (30. * scale) as i32,
+            1,
+        );
+        MoveWindow(
+            self.phone_code,
+            (22. * scale) as i32,
+            (325. * scale) as i32,
+            ((w - 44.) * scale) as i32,
+            (48. * scale) as i32,
+            1,
+        );
+        for control in [self.phone_name, self.phone_keys, self.phone_code] {
+            ShowWindow(control, if open && page == 9 { SW_SHOW } else { SW_HIDE });
+        }
+        if let Some(r) = &self.receiver {
+            if page == 9 {
+                SetWindowTextW(self.phone_code, wide(&r.pairing.code).as_ptr());
+            }
+        }
+
         MoveWindow(
             self.note,
             (22. * scale) as i32,
@@ -334,45 +417,105 @@ impl Desktop {
         SelectObject(dc, old);
         DeleteObject(brush);
         SelectObject(dc, pen);
-        label(
-            dc,
-            "mira · spațiul tău temporar",
-            76,
-            20,
-            w as i32 - 20,
-            45,
-            15,
-            color(233, 245, 243),
-        );
-        label(
-            dc,
-            "Click dreapta: moduri · dublu click pe ramă: acasă · trage colțul ◢",
-            22,
-            52,
-            w as i32 - 20,
-            72,
-            10,
-            color(144, 170, 187),
-        );
-        for (i, name) in ["Raft", "Notițe", "Clipboard", "Căutare"]
-            .iter()
-            .enumerate()
-        {
-            let left = 22 + i as i32 * 116;
+        if page == 9 {
             label(
                 dc,
-                name,
-                left,
+                "Pornește / oprește",
+                22,
                 82,
-                left + 110,
-                108,
+                185,
+                110,
                 12,
-                if page == 5 + i {
-                    color(133, 239, 183)
-                } else {
-                    color(157, 181, 199)
-                },
+                color(133, 239, 183),
             );
+            label(
+                dc,
+                "Revocă asocierea",
+                200,
+                82,
+                375,
+                110,
+                12,
+                color(255, 170, 180),
+            );
+            label(
+                dc,
+                "Nume acțiune și combinație (un buton + modificatori)",
+                230,
+                111,
+                w as i32 - 20,
+                126,
+                10,
+                color(145, 170, 190),
+            );
+            label(
+                dc,
+                "Adaugă shortcut →",
+                230,
+                201,
+                w as i32 - 20,
+                230,
+                12,
+                color(133, 239, 183),
+            );
+            if let Some(receiver) = &self.receiver {
+                let qr = &receiver.pairing.qr;
+                let step = 180. / (qr.len() + 8) as f32;
+                let white = CreateSolidBrush(color(255, 255, 255));
+                let bounds = RECT {
+                    left: 22,
+                    top: 124,
+                    right: 202,
+                    bottom: 304,
+                };
+                FillRect(dc, &bounds, white);
+                DeleteObject(white);
+                let black = CreateSolidBrush(0);
+                for (y, row) in qr.iter().enumerate() {
+                    for (x, bit) in row.iter().enumerate() {
+                        if *bit {
+                            let rect = RECT {
+                                left: 22 + ((x + 4) as f32 * step) as i32,
+                                top: 124 + ((y + 4) as f32 * step) as i32,
+                                right: 22 + ((x + 5) as f32 * step).ceil() as i32,
+                                bottom: 124 + ((y + 5) as f32 * step).ceil() as i32,
+                            };
+                            FillRect(dc, &rect, black);
+                        }
+                    }
+                }
+                DeleteObject(black);
+                let actions = receiver.snapshot()["actions"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                let names = actions
+                    .iter()
+                    .map(|a| a["name"].as_str().unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                label(
+                    dc,
+                    &names,
+                    230,
+                    239,
+                    w as i32 - 20,
+                    305,
+                    11,
+                    color(220, 235, 242),
+                );
+            } else {
+                label(
+                    dc,
+                    "Asociază telefonul",
+                    22,
+                    150,
+                    220,
+                    195,
+                    16,
+                    color(200, 222, 232),
+                );
+            }
         }
         if page == 5 {
             if self.state.links.is_empty() {
@@ -489,6 +632,85 @@ impl Desktop {
         );
         SetMapMode(dc, MM_TEXT);
     }
+    pub fn start_phone(&mut self) -> mira_core::Result<()> {
+        if self.receiver.is_none() {
+            let (config, dir) = mira_core::bridge::paths()?;
+            self.receiver = Some(mira_core::bridge::Receiver::start(
+                config,
+                dir,
+                "0.0.0.0:45271",
+            )?);
+        }
+        self.status =
+            "Telefon: transcrieri + taste autorizate. Codul de mai jos este privat.".into();
+        Ok(())
+    }
+    pub unsafe fn toolbar(&self, dc: HDC, scale: f32, page: usize, clock: &str) {
+        SetMapMode(dc, MM_ANISOTROPIC);
+        SetWindowExtEx(dc, 100, 100, null_mut());
+        SetViewportExtEx(dc, (100. * scale) as i32, (100. * scale) as i32, null_mut());
+        let brush = CreateSolidBrush(color(12, 13, 17));
+        let header = RECT {
+            left: 0,
+            top: 0,
+            right: self.width as i32,
+            bottom: 70,
+        };
+        FillRect(dc, &header, brush);
+        DeleteObject(brush);
+        let brush = CreateSolidBrush(color(130, 163, 255));
+        let old = SelectObject(dc, brush);
+        let pen = SelectObject(dc, GetStockObject(NULL_PEN));
+        Ellipse(dc, 22, 30, 28, 36);
+        Ellipse(dc, 36, 30, 42, 36);
+        SelectObject(dc, old);
+        SelectObject(dc, pen);
+        DeleteObject(brush);
+        let step = ((self.width - 150.) / 10.).clamp(26., 36.);
+        for (i, icon) in [
+            "\u{E8D6}", "\u{E823}", "\u{E9E9}", "\u{E7F4}", "\u{E9D9}", "\u{E8B7}", "\u{E70B}",
+            "\u{E77F}", "\u{E721}", "\u{E8EA}",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let left = (60. + i as f32 * step) as i32;
+            if i == page {
+                let b = CreateSolidBrush(color(31, 34, 48));
+                let old = SelectObject(dc, b);
+                let p = SelectObject(dc, GetStockObject(NULL_PEN));
+                RoundRect(dc, left, 14, left + step as i32 - 2, 52, 14, 14);
+                SelectObject(dc, old);
+                SelectObject(dc, p);
+                DeleteObject(b);
+            }
+            label(
+                dc,
+                icon,
+                left + 6,
+                17,
+                left + step as i32 - 2,
+                48,
+                19,
+                if i == page {
+                    color(125, 156, 255)
+                } else {
+                    color(145, 153, 170)
+                },
+            );
+        }
+        label(
+            dc,
+            clock,
+            self.width as i32 - 77,
+            15,
+            self.width as i32 - 15,
+            45,
+            16,
+            color(239, 242, 248),
+        );
+        SetMapMode(dc, MM_TEXT);
+    }
     pub fn folder_under(&self, x: i32, y: i32) {
         let result = self.folder_result.clone();
         // Only after an explicit robot drag. No persistent process/window scraping.
@@ -563,7 +785,12 @@ unsafe fn label(
         0,
         CLEARTYPE_QUALITY as u32,
         0,
-        wide("Segoe UI").as_ptr(),
+        wide(if size == 19 {
+            "Segoe MDL2 Assets"
+        } else {
+            "Segoe UI"
+        })
+        .as_ptr(),
     );
     let old = SelectObject(dc, font);
     SetTextColor(dc, color);

@@ -123,7 +123,7 @@ impl Host {
                 .desktop
                 .trail
                 .back()
-                .map_or(true, |s| s.1 != p.x || s.2 != p.y)
+                .is_none_or(|s| s.1 != p.x || s.2 != p.y)
             {
                 self.desktop.trail.push_back((now, p.x, p.y));
             }
@@ -303,6 +303,27 @@ impl Host {
     unsafe fn tick(&mut self, hwnd: HWND) {
         let now = Instant::now();
         let mut dirty = self.desktop.poll();
+        if let Some(receiver) = &self.desktop.receiver {
+            for job in receiver.drain() {
+                if job.action.lock {
+                    windows_sys::Win32::System::Shutdown::LockWorkStation();
+                } else {
+                    let keys = job
+                        .action
+                        .keys
+                        .iter()
+                        .filter_map(|key| remote_key(key))
+                        .collect::<Vec<_>>();
+                    for key in &keys {
+                        keybd_event(*key, 0, 0, 0);
+                    }
+                    for key in keys.iter().rev() {
+                        keybd_event(*key, 0, KEYEVENTF_KEYUP, 0);
+                    }
+                }
+            }
+        }
+
         self.desktop_tick(hwnd, now);
         if self
             .preview
@@ -461,6 +482,44 @@ impl Host {
         if !self.open {
             self.open = true;
             self.layout(hwnd);
+            return;
+        }
+        let (lx, ly) = (x as f32 / self.scale, y as f32 / self.scale);
+        let step = ((self.desktop.width - 150.) / 10.).clamp(26., 36.);
+        if (14. ..54.).contains(&ly) && (60. ..60. + 10. * step).contains(&lx) {
+            self.page = ((lx - 60.) / step) as usize;
+            self.layout(hwnd);
+            InvalidateRect(hwnd, null(), 0);
+            return;
+        }
+        if self.page == 9 {
+            if (80. ..112.).contains(&ly) {
+                if lx < 190. {
+                    if self.desktop.receiver.is_some() {
+                        self.desktop.receiver = None;
+                        self.desktop.status = "Primire oprită.".into();
+                    } else if let Err(e) = self.desktop.start_phone() {
+                        self.desktop.status = e.to_string();
+                    }
+                } else {
+                    self.desktop.receiver = None;
+                    if let Ok((path, _)) = mira_core::bridge::paths() {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    self.desktop.status = "Asociere revocată.".into();
+                }
+                self.layout(hwnd);
+            } else if (200. ..232.).contains(&ly) {
+                if let Some(receiver) = &self.desktop.receiver {
+                    let name = window_text(self.desktop.phone_name);
+                    let keys = window_text(self.desktop.phone_keys);
+                    self.desktop.status = receiver
+                        .add_action(&name, &keys)
+                        .map(|_| "Shortcut adăugat.".into())
+                        .unwrap_or_else(|e| e.to_string());
+                }
+            }
+            InvalidateRect(hwnd, null(), 0);
             return;
         }
         if self.page >= 5 {
@@ -787,6 +846,7 @@ impl Host {
                 self.text_with_left(buffer, &text, (0, 32), (11, color), 78);
             }
         } else {
+            SetViewportOrgEx(buffer, 0, (68. * self.scale) as i32, null_mut());
             let title = match self.page {
                 0 => self.tr("Muzică", "Music"),
                 1 => "Pomodoro",
@@ -914,6 +974,11 @@ impl Host {
             if let Some((text, _)) = &self.desktop.thought {
                 self.text(buffer, text, 32, 58, 11, rgb(133, 239, 183));
             }
+        }
+        if self.open {
+            SetViewportOrgEx(buffer, 0, 0, null_mut());
+            self.desktop
+                .toolbar(buffer, self.scale, self.page, &self.clock);
         }
         BitBlt(dc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
         SelectObject(buffer, old_bitmap);
@@ -1343,6 +1408,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 (312, "Mai mic −"),
                 (313, "Muzică / pagini clasice"),
                 (314, "Alege un folder…"),
+                (316, "Telefon · asociere și shortcuturi"),
             ] {
                 AppendMenuW(menu, MF_STRING, id, wide(label).as_ptr());
             }
@@ -1491,6 +1557,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                                     (s.desktop.mascot_scale * f).clamp(0.8, 1.6);
                                 s.desktop.width = (s.desktop.width * f).clamp(440., 960.);
                                 s.desktop.height = (s.desktop.height * f).clamp(300., 760.);
+                                s.layout(hwnd);
+                            }
+                            316 => {
+                                s.page = 9;
+                                s.open = true;
                                 s.layout(hwnd);
                             }
                             314 => {
@@ -1868,4 +1939,31 @@ pub(crate) unsafe fn window_text(hwnd: HWND) -> String {
     let mut buf = vec![0u16; len + 1];
     let got = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
     String::from_utf16_lossy(&buf[..got.max(0) as usize])
+}
+
+fn remote_key(key: &str) -> Option<u8> {
+    Some(match key {
+        "CTRL" => VK_CONTROL as u8,
+        "ALT" => VK_MENU as u8,
+        "SHIFT" => VK_SHIFT as u8,
+        "SUPER" => VK_LWIN as u8,
+        "ENTER" => VK_RETURN as u8,
+        "TAB" => VK_TAB as u8,
+        "SPACE" => VK_SPACE as u8,
+        "ESC" => VK_ESCAPE as u8,
+        "DELETE" => VK_DELETE as u8,
+        "BACKSPACE" => VK_BACK as u8,
+        "HOME" => VK_HOME as u8,
+        "END" => VK_END as u8,
+        "LEFT" => VK_LEFT as u8,
+        "RIGHT" => VK_RIGHT as u8,
+        "UP" => VK_UP as u8,
+        "DOWN" => VK_DOWN as u8,
+        "PAGEUP" => VK_PRIOR as u8,
+        "PAGEDOWN" => VK_NEXT as u8,
+        "PLUS" => VK_OEM_PLUS as u8,
+        "MINUS" => VK_OEM_MINUS as u8,
+        _ if key.len() == 1 => key.as_bytes()[0],
+        _ => VK_F1 as u8 + key.strip_prefix('F')?.parse::<u8>().ok()?.checked_sub(1)?,
+    })
 }

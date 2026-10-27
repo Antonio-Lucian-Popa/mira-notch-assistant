@@ -18,6 +18,18 @@ export type Snapshot = {
   scale: number;
   offset: number;
   motion?: boolean;
+  cameraMode?: boolean;
+  cameraX?: number;
+  cameraY?: number;
+  voice?: {
+    active: boolean;
+    state: string;
+    message: string;
+    partial?: string;
+    transcriptId?: string;
+  };
+  transcripts?: Transcript[];
+  peer?: { paired: boolean; message: string };
   today: { water?: number; completed?: number; sessions?: number };
   focus?: Focus;
   overlayGranted?: boolean;
@@ -90,3 +102,20 @@ export function reminderDraft(
   }
   return { title, due, daily };
 }
+
+export type Transcript = {
+  id: string;
+  createdAt: number;
+  title: string;
+  complete: boolean;
+  synced: boolean;
+  preview?: string;
+  text?: string;
+  characters?: number;
+};
+export type RemoteAction = {
+  id: string;
+  name: string;
+  keys: string[];
+  lock: boolean;
+};

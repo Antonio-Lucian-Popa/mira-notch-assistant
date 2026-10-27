@@ -26,6 +26,8 @@ class MiraOverlayService : Service() {
     private lateinit var params: WindowManager.LayoutParams
     private var attached = false
     private var interactive = true
+    private var cameraAligned=false
+    private var cameraHole=0f
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             interactive = intent.action != Intent.ACTION_SCREEN_OFF
@@ -73,12 +75,29 @@ class MiraOverlayService : Service() {
         capsule.animateFrame()
     }
     private fun resize() {
-        val scale = capsule.state.optDouble("scale", 1.0).toFloat()
-        params.width = dp(if (capsule.expanded) 300f else 146f * scale).toInt()
-        params.height = dp(if (capsule.expanded) 136f else 52f * scale).toInt()
-        params.y = dp(capsule.state.optInt("offset", 8).toFloat()).toInt()
-        manager.updateViewLayout(capsule, params)
+        val scale=capsule.state.optDouble("scale",1.0).toFloat()
+        val cutout=if(Build.VERSION.SDK_INT>=30)manager.currentWindowMetrics.windowInsets.displayCutout else if(Build.VERSION.SDK_INT>=28)capsule.rootWindowInsets?.displayCutout else null
+        val hole=cutout?.boundingRects?.filter{it.top<resources.displayMetrics.heightPixels/4&&it.width()>0}?.minByOrNull{it.top}
+        cameraAligned=capsule.state.optBoolean("cameraMode",true)&&hole!=null&&hole.width()<dp(96f)&&!capsule.expanded
+        if(cameraAligned&&hole!=null){
+            cameraHole=max(hole.width(),hole.height())/2f+dp(1f)
+            val size=(cameraHole*2+dp(22f)*scale).toInt().coerceAtLeast(dp(40f).toInt())
+            params.width=size;params.height=size;params.gravity=Gravity.TOP or Gravity.LEFT
+            params.x=(hole.centerX()-size/2+dp(capsule.state.optInt("cameraX").toFloat())).toInt()
+            params.y=(hole.centerY()-size/2+dp(capsule.state.optInt("cameraY").toFloat())).toInt()
+            params.flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            if(Build.VERSION.SDK_INT>=30)params.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            else if(Build.VERSION.SDK_INT>=28)params.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }else{
+            params.width=dp(if(capsule.expanded)300f else 146f*scale).toInt();params.height=dp(if(capsule.expanded)136f else 52f*scale).toInt()
+            params.gravity=Gravity.TOP or Gravity.CENTER_HORIZONTAL;params.x=0
+            params.flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            if(Build.VERSION.SDK_INT>=28)params.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+            params.y=dp(capsule.state.optInt("offset",8).toFloat()).toInt()
+        }
+        manager.updateViewLayout(capsule,params)
     }
+    override fun onConfigurationChanged(config:android.content.res.Configuration){super.onConfigurationChanged(config);reload()}
     override fun onDestroy() {
         if (attached) {
             capsule.stop()
@@ -124,6 +143,20 @@ class MiraOverlayService : Service() {
         }
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
+            if(cameraAligned&&!expanded){
+                val now=SystemClock.uptimeMillis();val cx=width/2f;val cy=height/2f
+                val motion=state.optBoolean("motion",true)
+                val blink=if(motion&&now>=blinkStart)(1f-sin(((now-blinkStart).coerceAtMost(180)/180f)*PI).toFloat()*.92f)else 1f
+                if(now-blinkStart>180)blinkStart=now+3500
+                val color=if(MiraVoiceService.snapshot().optBoolean("active"))Color.rgb(255,137,158)else Color.rgb(130,222,238)
+                paint.color=Color.rgb(14,18,24);canvas.drawCircle(cx,cy,width/2f,paint)
+                paint.color=color;paint.style=Paint.Style.STROKE;paint.strokeWidth=dp(4f)
+                val radius=cameraHole+dp(5f)
+                canvas.drawOval(cx-radius,cy-radius*blink,cx+radius,cy+radius*blink,paint)
+                paint.style=Paint.Style.FILL
+                paint.xfermode=PorterDuffXfermode(PorterDuff.Mode.CLEAR);canvas.drawCircle(cx,cy,cameraHole,paint);paint.xfermode=null
+                return
+            }
             val now = SystemClock.uptimeMillis()
             val next = nextReminder()
             val remaining = next?.let { it.getLong("due") - System.currentTimeMillis() }

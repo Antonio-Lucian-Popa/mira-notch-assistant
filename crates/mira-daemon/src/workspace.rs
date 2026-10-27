@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 pub struct WorkspaceIface {
     state: Arc<Mutex<Workspace>>,
     generation: Arc<AtomicU64>,
+    receiver: Mutex<Option<mira_core::bridge::Receiver>>,
 }
 impl WorkspaceIface {
     pub fn new() -> Self {
@@ -20,6 +21,61 @@ impl WorkspaceIface {
 }
 #[zbus::interface(name = "ro.novabytecode.Mira.Workspace")]
 impl WorkspaceIface {
+    async fn phone_start(&self) -> zbus::fdo::Result<String> {
+        let mut r = self.receiver.lock().await;
+        if r.is_none() {
+            let (config, dir) =
+                mira_core::bridge::paths().map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+            *r = Some(
+                mira_core::bridge::Receiver::start(config, dir, "0.0.0.0:45271")
+                    .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?,
+            );
+        }
+        Ok(r.as_ref().unwrap().snapshot().to_string())
+    }
+    async fn phone_stop(&self) {
+        self.receiver.lock().await.take();
+    }
+    async fn phone_revoke(&self) -> zbus::fdo::Result<()> {
+        self.receiver.lock().await.take();
+        let (config, _) =
+            mira_core::bridge::paths().map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        if config.exists() {
+            std::fs::remove_file(config).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        }
+        Ok(())
+    }
+    async fn phone_state(&self) -> String {
+        self.receiver
+            .lock()
+            .await
+            .as_ref()
+            .map(|r| r.snapshot().to_string())
+            .unwrap_or("{\"running\":false}".into())
+    }
+    async fn phone_actions(&self) -> String {
+        self.receiver
+            .lock()
+            .await
+            .as_ref()
+            .map(|r| serde_json::to_string(&r.drain()).unwrap_or_default())
+            .unwrap_or("[]".into())
+    }
+    async fn phone_add_action(&self, name: String, keys: String) -> zbus::fdo::Result<()> {
+        let r = self.receiver.lock().await;
+        r.as_ref()
+            .ok_or_else(|| zbus::fdo::Error::Failed("Pornește primirea mai întâi.".into()))?
+            .add_action(&name, &keys)
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    }
+    async fn phone_remove_action(&self, id: String) -> zbus::fdo::Result<()> {
+        let r = self.receiver.lock().await;
+        if let Some(r) = r.as_ref() {
+            r.remove_action(&id)
+                .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        }
+        Ok(())
+    }
     async fn snapshot(&self) -> String {
         serde_json::to_string(&*self.state.lock().await).unwrap_or_default()
     }

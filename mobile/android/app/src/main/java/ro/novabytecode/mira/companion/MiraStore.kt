@@ -74,6 +74,9 @@ class MiraStore(context: Context, storageName: String = "mira.mobile.v1") {
                 }
                 if (payload.has("scale")) s.put("scale", payload.getDouble("scale").coerceIn(0.85, 1.15))
                 if (payload.has("offset")) s.put("offset", payload.getInt("offset").coerceIn(0, 120))
+                if(payload.has("cameraMode"))s.put("cameraMode",payload.getBoolean("cameraMode"))
+                if(payload.has("cameraX"))s.put("cameraX",payload.getInt("cameraX").coerceIn(-120,120))
+                if(payload.has("cameraY"))s.put("cameraY",payload.getInt("cameraY").coerceIn(-60,120))
                 if (payload.has("motion")) s.put("motion", payload.getBoolean("motion"))
             }
             "focusStart" -> {

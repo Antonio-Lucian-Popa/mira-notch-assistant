@@ -10,9 +10,9 @@ members = [
 # OS-specific code is cfg-gated so the workspace checks on both platforms.
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 license = "MIT"
 authors = ["Mira contributors"]
 repository = "https://github.com/antonio-lucian-popa/mira-notch-assistant"

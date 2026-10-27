@@ -86,7 +86,8 @@ impl Workspace {
         });
     }
     pub fn push_clip(&mut self, text: &str) {
-        if !self.capture || text.trim().is_empty() {
+        if !self.capture || text.trim().is_empty() || text.trim_start().starts_with("mira-pair://")
+        {
             return;
         }
         let text: String = text.chars().take(16_384).collect();

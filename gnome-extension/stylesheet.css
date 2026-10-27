@@ -652,3 +652,21 @@
 .mira-work-grip {color:#85efb7;font-size:14px;padding:4px 7px;}
 .mira-dots {spacing:8px;padding:6px;}
 .mira-dot.active {background-color:#85efb7;}
+
+/* Compact top navigation, matching the user's reference. */
+.mira-header {spacing:10px;padding:0 0 12px;border-bottom:1px solid #24262e;}
+.mira-header-stamp {min-width:58px;spacing:2px;}
+.mira-header-stamp .mira-time {font-size:16px;text-align:right;}
+.mira-header-stamp .mira-date {font-size:10px;color:#898d9a;text-align:right;}
+.mira-top-tabs {spacing:2px;}
+.mira-top-tab {padding:8px;border-radius:13px;color:#9297a7;}
+.mira-top-tab:hover {background-color:#23252f;color:#e7ebfa;}
+.mira-top-tab.active {background-color:#202332;color:#7d9cff;}
+.mira-body {spacing:0;}
+.mira-open {padding:14px 18px 9px;}
+.mira-controls {spacing:28px;}
+.mira-music-controls {min-height:120px;padding-top:12px;}
+.mira-ctl-btn {width:58px;height:58px;padding:0;border-radius:30px;background-color:#20212a;color:#e7eafb;}
+.mira-ctl-btn:hover {background-color:#2d3040;}
+.mira-ctl-play {width:82px;height:82px;border-radius:42px;background-color:#5b86ff;color:white;}
+.mira-ctl-play:hover {background-color:#789bff;}

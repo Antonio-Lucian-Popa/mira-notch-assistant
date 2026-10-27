@@ -1,10 +1,10 @@
-# Mira for Android — 0.1.0 preview
+# Mira for Android — 0.2.0 preview
 
 An independent, local-first Android companion built with **React Native 0.85 / TypeScript** and a **native Kotlin floating capsule**. Android 8.0+ (API 26); this preview APK includes ARM64 phones and x86-64 emulators. iOS is not implemented.
 
 ## What works
 
-- Four screens: Home, Reminders, Studio, Settings. Romanian interface.
+- Five screens, including Voice & PC: Home, Reminders, Studio, Settings and Voice & PC. Romanian interface.
 - Native floating capsule above ordinary apps, enabled explicitly by the user. Tap to expand, tap the expanded body to open Mira; tap × to collapse. Long press opens Mira. Eyes follow a finger moved inside the capsule.
 - Four themes: Mira, Orbit, Nori, Pixel. Preview expressions; capsule scale, vertical spacing and reduced motion controls.
 - Persistent local reminders, relative minutes or the next local clock time, optional daily recurrence. Countdown and agitated eyes during the last minute. Complete and snooze for five minutes in the app or notification. Deleting cancels the series; snoozing preserves the original daily clock time. Repeated completion of the same occurrence cannot skip another day.
@@ -48,8 +48,49 @@ cd mobile/android
 
 Unit tests cover local scheduling, input validation, urgency, countdowns and DST recurrence. The React Native integration test submits the reminder form. Instrumented store tests cover persistence, recurring completion idempotence, snooze, cancellation, water and focus pause/resume, using separate disposable test preferences.
 
-## Desktop connection: prepared, not active
+## Voice & PC — new in 0.2
 
-There is **no pairing, synchronization or network listener** in this preview. `src/sync-contract.ts` defines a proposed versioned event envelope for a later companion protocol; it is not imported by the running app. Desktop changes are still required.
+The native microphone service uses the configured Android speech provider, with
+explicit RECORD_AUDIO permission, a visible foreground notification and Stop.
+“Listen for Mira” is a **60-second command session**, not permanent hotword
+recognition. Say “Mira / Hey Mira” then “pornește transcrierea”; the direct button
+starts dictation immediately. “Mira gata” is stripped even across ASR result chunks.
+Transcription stops after 30 minutes or on unrecoverable provider errors. Confirmed
+text is saved; there is no boot-time / invisible microphone activation, local LLM,
+paid model API, or raw audio archive. Romanian availability and accuracy depend on
+the device/provider; audio may be processed online by that provider. Wake + focus,
+pause/resume/stop and water commands are a finite whitelist.
 
-The next stage should implement QR pairing with one-time, expiring credentials, mutual device authentication and encrypted transport. Persist an outbox, deduplicate by event ID, scope entity IDs by origin, keep deletion tombstones and use expected occurrence timestamps for recurring completions. Define conflict resolution and notification ownership before enabling two-device reminders. Begin on the same Wi-Fi network; Internet relay/cloud support is a separate feature. A device address alone must never establish trust.
+Records live in private app files (up to 100); export creates a cached, immutable
+PDF with Unicode text, A4 pagination and a repeating header/footer. Share uses a
+scoped FileProvider, without broad storage permission. Deleting a phone record
+cannot remove a copy already received by the PC. An interrupted draft remains
+readable; completed sessions are eligible for upload.
+
+On desktop 0.7, open **Telefon**, start receiving and scan/photograph the QR (or paste
+its code) in **Voice & PC**. The camera photo is decoded locally as QR and deleted;
+it is not sent to a model. Pairing verifies the pinned TLS certificate before
+saving the bearer token. It grants PDF uploads and the PC's registered shortcuts.
+Only the same reachable IPv4 LAN is supported; no Bluetooth proximity detector or
+cloud relay. Re-pair after a PC IP change. Unmetered-network WorkManager jobs retry
+transcript delivery and run periodically (minimum 15 minutes, potentially delayed
+by Android). Manual sync also exists. A 200 receipt is required before marking a
+record delivered; retrying does not create duplicate PDFs. Disconnect cancels jobs.
+
+Load remote buttons from the paired PC. Define custom combinations **on the PC**,
+e.g. CTRL+ALT+2, or use the OS lock profile. Requests carry an action ID, never shell
+commands or arbitrary key sequences. Offline commands fail instead of being queued
+for a surprise execution later. “Accepted” is queue acknowledgement; the target OS
+may reserve or ignore a combination. Revoking on the desktop invalidates pairing.
+
+The single-eye camera style uses reported display-cutout geometry with X/Y
+calibration; ordinary capsule remains the fallback. It draws around a lens, never
+on the physical hole. Status/system surfaces can cover app overlays. Verified on
+an emulated punch-hole, not an actual Samsung S26. Speech service start/stop was
+verified on the emulator, while recognition accuracy and photo-based QR reading
+still need real microphone/camera testing on a phone.
+
+See the root README for transport, privacy and test details. Instrumented tests
+should use a disposable emulator: they install the test variant and manage pairing
+state. Pure rules cover wake boundaries and stop-phrase removal; an instrumented
+round trip rejects a wrong certificate and transfers a real multipage PDF.

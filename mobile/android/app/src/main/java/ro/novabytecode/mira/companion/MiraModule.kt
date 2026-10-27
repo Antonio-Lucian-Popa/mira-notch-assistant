@@ -11,11 +11,15 @@ import com.facebook.react.uimanager.ViewManager
 import org.json.JSONObject
 
 class MiraModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
+    private val scanner=PairingScanner(context)
+    private val io=java.util.concurrent.Executors.newSingleThreadExecutor()
+    private fun background(promise:Promise,task:()->String){io.execute{result(promise,task)}}
     override fun getName() = "MiraCompanion"
     private fun result(promise: Promise, task: () -> String) { try { promise.resolve(task()) } catch (e: Exception) { promise.reject("MIRA", e.message, e) } }
     @ReactMethod fun snapshot(promise: Promise) = result(promise) {
         MiraStore(context).snapshot().put("overlayGranted", Settings.canDrawOverlays(context))
             .put("overlayRunning", MiraOverlayService.running())
+            .put("voice",MiraVoiceService.snapshot()).put("transcripts",TranscriptStore(context).list()).put("peer",TranscriptSync.status(context))
             .put("notificationsGranted", context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()).toString()
     }
     @ReactMethod fun action(action: String, json: String, promise: Promise) = result(promise) {
@@ -30,6 +34,29 @@ class MiraModule(private val context: ReactApplicationContext) : ReactContextBas
         MiraOverlayService.refresh()
         s.toString()
     }
+    @ReactMethod fun scanPairing(promise:Promise){UiThreadUtil.runOnUiThread{scanner.scan(promise)}}
+    @ReactMethod fun voiceStart(dictate:Boolean,promise:Promise)=result(promise){
+        require(context.lifecycleState==com.facebook.react.common.LifecycleState.RESUMED){"Pornește vocea din aplicația deschisă."}
+        require(context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)==android.content.pm.PackageManager.PERMISSION_GRANTED){"Permite accesul la microfon."}
+        require(android.speech.SpeechRecognizer.isRecognitionAvailable(context)){"Instalează/activează un serviciu de recunoaștere vocală Android."}
+        val intent=Intent(context,MiraVoiceService::class.java).putExtra("dictate",dictate)
+        if(Build.VERSION.SDK_INT>=26)context.startForegroundService(intent)else context.startService(intent)
+        "{}"
+    }
+    @ReactMethod fun voiceStop(promise:Promise)=result(promise){MiraVoiceService.stopNow();"{}"}
+    @ReactMethod fun transcript(id:String,promise:Promise)=background(promise){TranscriptStore(context).get(id).toString()}
+    @ReactMethod fun deleteTranscript(id:String,promise:Promise)=background(promise){require(MiraVoiceService.snapshot().optString("transcriptId")!=id||!MiraVoiceService.snapshot().optBoolean("active")){"Oprește mai întâi transcrierea."};TranscriptStore(context).delete(id);"{}"}
+    @ReactMethod fun sharePdf(id:String,promise:Promise)=background(promise){
+        val file=TranscriptPdf.export(context,TranscriptStore(context).get(id))
+        val uri=androidx.core.content.FileProvider.getUriForFile(context,context.packageName+".files",file)
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),"Exportă transcrierea").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        "{}"
+    }
+    @ReactMethod fun pair(code:String,promise:Promise)=background(promise){TranscriptSync.pair(context,code);"{}"}
+    @ReactMethod fun unpair(promise:Promise)=background(promise){TranscriptSync.disconnect(context);"{}"}
+    @ReactMethod fun syncNow(promise:Promise)=background(promise){check(TranscriptSync.upload(context)){TranscriptSync.status(context).optString("message")};"{}"}
+    @ReactMethod fun remoteActions(promise:Promise)=background(promise){TranscriptSync.actions(context).toString()}
+    @ReactMethod fun remoteAction(id:String,promise:Promise)=background(promise){TranscriptSync.trigger(context,id);"{}"}
     @ReactMethod fun overlayPermission(promise: Promise) = result(promise) {
         context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         "{}"
@@ -41,7 +68,7 @@ class MiraModule(private val context: ReactApplicationContext) : ReactContextBas
     @ReactMethod fun overlay(enabled: Boolean, promise: Promise) = result(promise) {
         if (enabled) {
             require(Settings.canDrawOverlays(context)) { "Permite mai întâi afișarea peste alte aplicații." }
-            require(context.currentActivity?.hasWindowFocus() == true) { "Pornește capsula din aplicația deschisă." }
+            require(context.lifecycleState==com.facebook.react.common.LifecycleState.RESUMED) { "Pornește capsula din aplicația deschisă." }
             val intent = Intent(context, MiraOverlayService::class.java)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
         } else context.stopService(Intent(context, MiraOverlayService::class.java))

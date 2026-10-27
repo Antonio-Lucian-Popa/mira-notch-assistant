@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Eyes } from './src/Eyes';
+import { VoicePanel } from './src/VoicePanel';
 import { companion } from './src/native';
 import {
   duration,
@@ -27,11 +28,12 @@ import {
   type Snapshot,
 } from './src/model';
 
-type Tab = 'today' | 'reminders' | 'studio' | 'settings';
+type Tab = 'today' | 'reminders' | 'studio' | 'voice' | 'settings';
 const tabs: { id: Tab; title: string; icon: string }[] = [
   { id: 'today', title: 'Acasă', icon: '◉' },
   { id: 'reminders', title: 'Remindere', icon: '◷' },
   { id: 'studio', title: 'Studio', icon: '✦' },
+  { id: 'voice', title: 'Voce & PC', icon: '◌' },
   { id: 'settings', title: 'Setări', icon: '⚙' },
 ];
 function Button({
@@ -192,6 +194,7 @@ function MiraApp() {
     today: 'În ritmul tău.',
     reminders: 'Nu uita de tine.',
     studio: 'Puțină personalitate.',
+    voice: 'Vocea ta, la îndemână.',
     settings: 'Mira, pe gustul tău.',
   }[tab];
   return (
@@ -562,6 +565,7 @@ function MiraApp() {
                 </View>
               </>
             )}
+            {tab === 'voice' && <VoicePanel data={data} run={run} />}
             {tab === 'settings' && (
               <>
                 <Card>
@@ -616,6 +620,54 @@ function MiraApp() {
                 </Card>
                 <Card>
                   <Text style={s.cardTitle}>Cum se așază capsula</Text>
+                  <Text style={s.label}>Poziționare la cameră</Text>
+                  <View style={s.row}>
+                    <Button
+                      title="Un ochi · auto"
+                      quiet={data.cameraMode === false}
+                      onPress={() => action('settings', { cameraMode: true })}
+                    />
+                    <Button
+                      title="Capsulă"
+                      quiet={data.cameraMode !== false}
+                      onPress={() => action('settings', { cameraMode: false })}
+                    />
+                  </View>
+                  <Caption>
+                    Ochiul înconjoară camera dacă Android raportează decupajul.
+                    Nu poate desena peste gaura fizică sau peste elementele
+                    protejate ale sistemului.
+                  </Caption>
+                  <View style={s.row}>
+                    <Button
+                      quiet
+                      title="←"
+                      onPress={() =>
+                        action('settings', { cameraX: (data.cameraX ?? 0) - 2 })
+                      }
+                    />
+                    <Button
+                      quiet
+                      title="→"
+                      onPress={() =>
+                        action('settings', { cameraX: (data.cameraX ?? 0) + 2 })
+                      }
+                    />
+                    <Button
+                      quiet
+                      title="↑"
+                      onPress={() =>
+                        action('settings', { cameraY: (data.cameraY ?? 0) - 2 })
+                      }
+                    />
+                    <Button
+                      quiet
+                      title="↓"
+                      onPress={() =>
+                        action('settings', { cameraY: (data.cameraY ?? 0) + 2 })
+                      }
+                    />
+                  </View>
                   <Text style={s.label}>Dimensiune</Text>
                   <View style={s.wrap}>
                     {[0.85, 1, 1.15].map(scale => (
@@ -659,18 +711,21 @@ function MiraApp() {
                   </View>
                 </Card>
                 <Card>
-                  <Text style={s.tag}>ÎN PREGĂTIRE</Text>
                   <Text style={s.cardTitle}>
                     Telefonul și desktopul, împreună.
                   </Text>
                   <Caption>
-                    Conectarea prin QR și sincronizarea vor veni într-o etapă
-                    următoare. Această versiune funcționează independent și
-                    păstrează datele pe telefon.
+                    Asociază PC-ul din Voce &amp; PC. Transcrierile finalizate
+                    se trimit criptat pe aceeași rețea; tastele sunt definite pe
+                    desktop.
                   </Caption>
+                  <Button
+                    title="Deschide Voce & PC"
+                    onPress={() => setTab('voice')}
+                  />
                 </Card>
                 <Text style={s.footer}>
-                  Mira pentru Android · 0.1.0 preview{'\n'}Fără cont. Fără
+                  Mira pentru Android · 0.2.0 preview{'\n'}Fără cont. Fără
                   telemetrie. În ritmul tău.
                 </Text>
               </>

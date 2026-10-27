@@ -9,7 +9,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
 
-const WORK = ['shelf', 'notes', 'clipboard', 'search'];
+const WORK = ['shelf', 'notes', 'clipboard', 'search', 'phone'];
 export class Desktop {
     constructor(notch, client, settings, hooks) {
         this.n = notch; this.client = client; this.settings = settings; this.hooks = hooks;
@@ -67,6 +67,8 @@ export class Desktop {
         this.searchStatus = this.label('Grep literal, fără diferență între majuscule. Adaugă mai întâi un folder.'); search.add_child(this.searchStatus);
         const results = new St.ScrollView({x_expand: true, y_expand: true});
         this.results = new St.BoxLayout({vertical: true, style_class: 'mira-work-cards'}); results.set_child(this.results); search.add_child(results);
+        this.buildPhone();
+        this.remoteTimer=GLib.timeout_add(GLib.PRIORITY_DEFAULT,700,()=>{if(!this.alive)return GLib.SOURCE_REMOVE;if(this.phoneRunning)this.client.workspace('PhoneActions',[],jobs=>{if(this.alive&&Array.isArray(jobs))for(const job of jobs)this.executeRemote(job);});return GLib.SOURCE_CONTINUE;});
         this.menu = new PopupMenu.PopupMenu(this.n, .5, St.Side.TOP);
         Main.uiGroup.add_child(this.menu.actor); this.menu.actor.hide();
         this.menu.actor.connect('destroy',()=>{this.menuDestroyed=true;});
@@ -75,6 +77,7 @@ export class Desktop {
             this.menu.addAction(label, () => mode === 'docked' ? this.home() : this.setMode(mode));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         for (const [label, page] of [['Raft de fișiere', 'shelf'], ['Sticky notepad', 'notes'], ['Clipboard', 'clipboard'], ['Caută în foldere', 'search']]) this.menu.addAction(label, () => this.openPage(page));
+        this.menu.addAction('Telefon · asociere și taste',()=>this.openPage('phone'));
         this.menu.addAction('Alege fișiere sau folder', () => this.dropPad('choose'));
         this.menu.addAction('Mai mare ＋', () => this.resizeBy(1.1)); this.menu.addAction('Mai mic −', () => this.resizeBy(.9));
         this.menu.addAction('Pauză / reia clipboard', () => {this.state.capture = !this.state.capture; this.client.workspace('Capture', [this.state.capture], () => this.refresh());});
@@ -153,6 +156,7 @@ export class Desktop {
             if (e.get_button() === 3) {this.menu.toggle(); return Clutter.EVENT_STOP;}
             if (e.get_button() !== 1) return Clutter.EVENT_PROPAGATE;
             const source = e.get_source();
+            if(this.n._tabsBox?.contains(source))return Clutter.EVENT_PROPAGATE;
             const now = e.get_time();
             if (now-this.lastClick < 360) {this.lastClick=0; this.home(); return Clutter.EVENT_STOP;}
             const resizing = this.n._open && x > this.n.x+this.n.width-26 && y > this.n.y+this.n.height-26;
@@ -212,6 +216,7 @@ export class Desktop {
     }
     add(paths) {this.client.workspace('AddPaths',[paths],state=>{if (!this.alive) return; this.state=state; this.render(); this.openPage('shelf');});}
     refresh() {
+        if(this.n._pageNames[this.n._page]==='phone'){this.client.workspace('PhoneState',[],data=>this.phoneRender(data));}
         const gen=++this.refreshGeneration;
         this.client.workspace('Snapshot',[],state=>{if (!this.alive || gen!==this.refreshGeneration || state.error) return;
             this.state=state; this.render();
@@ -257,6 +262,42 @@ export class Desktop {
             }
         });
     }
+    buildPhone(){
+        const page=this.pages.phone;
+        const bar=new St.BoxLayout({style_class:'mira-work-actions'});
+        bar.add_child(this.button('Pornește primirea',()=>this.client.workspace('PhoneStart',[],data=>this.phoneRender(data))));
+        bar.add_child(this.button('Oprește',()=>this.client.workspace('PhoneStop',[],()=>this.phoneRender({running:false}))));
+        bar.add_child(this.button('PDF-uri',()=>{if(this.phoneFolder)Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(this.phoneFolder).get_uri(),global.create_app_launch_context(0,-1));}));
+        bar.add_child(this.button('Revocă asocierea',()=>this.client.workspace('PhoneRevoke',[],()=>this.phoneRender({running:false}))));page.add_child(bar);
+        this.phoneInfo=this.label('Asociază telefonul pentru PDF-uri și acțiunile definite aici. Numai aceeași rețea locală.');page.add_child(this.phoneInfo);
+        const row=new St.BoxLayout({style_class:'mira-work-actions',y_expand:true});
+        this.qr=new St.DrawingArea();this.qr.set_size(180,180);this.qr.connect('repaint',()=>{
+            if(!this.qrMatrix)return;const cr=this.qr.get_context();const [w,h]=this.qr.get_surface_size();const size=this.qrMatrix.length;const step=Math.min(w,h)/(size+8);cr.setSourceRGB(1,1,1);cr.paint();cr.setSourceRGB(0,0,0);
+            this.qrMatrix.forEach((line,y)=>line.forEach((bit,x)=>{if(bit){cr.rectangle((x+4)*step,(y+4)*step,Math.ceil(step),Math.ceil(step));cr.fill();}}));cr.$dispose();
+        });row.add_child(this.qr);
+        const setup=new St.BoxLayout({vertical:true,style_class:'mira-work-page',x_expand:true});
+        setup.add_child(this.button('Copiază codul de asociere',()=>{if(this.pairCode)St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD,this.pairCode);}));
+        this.actionName=new St.Entry({hint_text:'Nume: Plec la baie',can_focus:true,style_class:'mira-work-query'});
+        this.actionKeys=new St.Entry({hint_text:'CTRL+ALT+2',can_focus:true,style_class:'mira-work-query'});setup.add_child(this.actionName);setup.add_child(this.actionKeys);
+        setup.add_child(this.button('Adaugă shortcut',()=>this.client.workspace('PhoneAddAction',[this.actionName.get_text(),this.actionKeys.get_text()],data=>{if(data.error)this.phoneInfo.text=data.error;else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));})));
+        this.phoneList=new St.BoxLayout({vertical:true});const scroll=new St.ScrollView({y_expand:true});scroll.set_child(this.phoneList);setup.add_child(scroll);row.add_child(setup);page.add_child(row);
+    }
+    phoneRender(data){
+        if(!this.alive)return;
+        if(data.error){this.phoneInfo.text=data.error;return;}
+        this.phoneFolder=data.directory;this.phoneRunning=!!data.running;this.pairCode=data.code;this.qrMatrix=data.qr;this.qr.visible=!!data.running;this.qr.queue_repaint();this.phoneList.destroy_all_children();
+        this.phoneInfo.text=data.running?`${data.address} · PDF-urile ajung în ${data.directory}`:'Primire oprită. Asocierea acordă acces la transcrieri și la shortcuturile de mai jos.';
+        for(const action of data.actions??[])this.phoneList.add_child(this.button(`${action.name} · ${action.lock?'blocare PC':action.keys.join('+')}   ×`,()=>this.client.workspace('PhoneRemoveAction',[action.id],()=>this.client.workspace('PhoneState',[],d=>this.phoneRender(d)))));
+    }
+    executeRemote(job){
+        if(Date.now()-job.issued_at>10000)return;
+        if(job.action.lock){Main.screenShield.lock(true);return;}
+        if(Main.sessionMode.isLocked)return;
+        this.virtualKeyboard??=Clutter.get_default_backend().get_default_seat().create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        const special={CTRL:Clutter.KEY_Control_L,ALT:Clutter.KEY_Alt_L,SHIFT:Clutter.KEY_Shift_L,SUPER:Clutter.KEY_Super_L,ENTER:Clutter.KEY_Return,TAB:Clutter.KEY_Tab,SPACE:Clutter.KEY_space,ESC:Clutter.KEY_Escape,DELETE:Clutter.KEY_Delete,BACKSPACE:Clutter.KEY_BackSpace,HOME:Clutter.KEY_Home,END:Clutter.KEY_End,LEFT:Clutter.KEY_Left,RIGHT:Clutter.KEY_Right,UP:Clutter.KEY_Up,DOWN:Clutter.KEY_Down,PAGEUP:Clutter.KEY_Page_Up,PAGEDOWN:Clutter.KEY_Page_Down,PLUS:Clutter.KEY_plus,MINUS:Clutter.KEY_minus};
+        const keys=job.action.keys.map(key=>special[key]??(/^F([1-9]|1[0-9]|2[0-4])$/.test(key)?Clutter[`KEY_${key}`]:key.toLowerCase().charCodeAt(0)));
+        const time=GLib.get_monotonic_time();const pressed=[];try{for(const key of keys){this.virtualKeyboard.notify_keyval(time,key,Clutter.KeyState.PRESSED);pressed.push(key);}}finally{for(const key of pressed.reverse())this.virtualKeyboard.notify_keyval(time+1000,key,Clutter.KeyState.RELEASED);}
+    }
     dropPad(mode) {
         this.openPage('shelf');
         try {
@@ -275,7 +316,8 @@ export class Desktop {
         });
     }
     destroy() {
-        this.alive=false; this.cancel.cancel(); this.grab?.dismiss();
+        this.alive=false; this.cancel.cancel();
+        if(this.remoteTimer)GLib.source_remove(this.remoteTimer);this.client.workspace('PhoneStop',[]);this.virtualKeyboard=null; this.grab?.dismiss();
         this.pointer?.remove(); if (this.loop) GLib.source_remove(this.loop);
         for (const id of this.timers) GLib.source_remove(id);
         for (const [obj,id] of this.handlers) obj.disconnect(id);

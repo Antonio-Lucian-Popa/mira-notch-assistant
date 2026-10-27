@@ -193,7 +193,7 @@ mod tests {
     fn embedded_tokens_parse() {
         let t = Tokens::embedded().expect("design/tokens.json must parse");
         assert_eq!(t.version, 1);
-        assert_eq!(t.pages.len(), 11);
+        assert_eq!(t.pages.len(), 12);
         assert!(t.pages.iter().any(|page| page == "reminders"));
         assert_eq!(t.pages[0], "music");
         assert_eq!(t.pages[1], "lyrics");

@@ -5,7 +5,7 @@ screen. Mira shows your music, synced lyrics, timers, system notifications and a
 file shelf, then gets out of the way. It runs on **Windows 10/11** and
 **Ubuntu / GNOME (Wayland)**. Windows is currently a native preview with a smaller feature set.
 
-> **Status: v0.6.0 desktop workspace preview.** Linux has the daemon and GNOME extension. Windows has an
+> **Status: v0.7.0 desktop + Android 0.2.0 voice preview.** Linux has the daemon and GNOME extension. Windows has an
 > initial native host with cursor-following eyes, a clock, media-key controls,
 > Pomodoro, a persistent daily water counter and standalone reminders. Windows feature parity is in progress. An independent **Android preview** built with React Native and a native Kotlin overlay lives in [`mobile/`](mobile/README.md).
 
@@ -14,8 +14,7 @@ file shelf, then gets out of the way. It runs on **Windows 10/11** and
 - **Light desktop hosts** — target ~0% idle CPU and under 40 MB RAM. No webview, no Electron.
 - **Event-driven** — subscribe to OS media events; update countdowns while needed. Avoid continuous
   redraws when the UI is at rest.
-- **Local-first** — no accounts, no telemetry. The only network access is to
-  [LRCLIB](https://lrclib.net) for lyrics.
+- **Local-first** — no accounts, no telemetry. Lyrics use [LRCLIB](https://lrclib.net). The optional paired-phone bridge stays on the LAN; Android speech uses the system recognition provider. No Mira cloud or telemetry.
 - **Shared visual language** — one design-token file (`design/tokens.json`)
   drives sizes, colors, animations and pages for both desktop UIs.
 - **Bilingual desktop** — Romanian and English. The Android preview starts in Romanian.
@@ -53,7 +52,7 @@ The heart of Mira, with no OS dependencies:
 
 ## Building & testing
 
-Requires a stable Rust toolchain (1.80+) and a C compiler (for bundled SQLite
+Requires a stable Rust toolchain (1.88+) and a C compiler (for bundled SQLite
 and rustls). No system SQLite or OpenSSL is needed.
 
 ```sh
@@ -211,6 +210,75 @@ replaying old lunch greetings late in the day. Calendar times follow the local
 timezone and daylight-saving changes. These routines require an active GNOME
 session with the extension enabled; pending banners wait until the notch is free.
 This settings UI is not yet part of the Windows preview.
+
+## Voice, PDFs and phone control (desktop 0.7 / Android 0.2 preview)
+
+Desktop navigation now uses an icon toolbar at the top, with an active-tab highlight
+and a compact date/time stamp. Side navigation arrows and bottom page dots are gone.
+The toolbar includes **Telefon** for pairing, receiving transcripts and registering shortcuts.
+
+1. On the PC, open **Telefon** and **Pornește primirea**. The receiver is off by
+   default and stops when the GNOME extension / Windows application closes.
+2. On Android, open **Voce & PC**, photograph the desktop QR or paste its pairing
+   code, then select **Asociază PC-ul**. Pairing authorizes PDF uploads **and** the
+   locally registered keyboard actions. Keep the pairing code private; **Revocă
+   asocierea** on the PC rotates its identity and invalidates old pairings.
+3. Enable voice explicitly with microphone permission. **Ascultă Mira** opens a
+   60-second wake/command session; say `Mira` / `Hey Mira`, then `pornește transcrierea`.
+   There is also a direct transcription button. `Mira gata` ends dictation and is
+   removed, including across recognition chunks. A Stop button and microphone
+   notification work without recognizing a spoken command. Dictation is bounded
+   to 30 minutes and preserves confirmed text on errors.
+4. Completed text stays on the phone, with a paginated A4 PDF export. The unchanged
+   PDF is generated on the **phone**, then delivered to `Documents/Mira/Transcrieri`
+   on the PC alongside UTF-8 text. This is typography, not an AI summary. Android
+   schedules automatic uploads on unmetered networks; manual sync is available.
+   The PC must be on, receiving, and reachable at the paired LAN address. Physical
+   proximity alone is not detected; background work may be delayed. Re-pair if the
+   PC's IP address changes. There is no Internet relay or shared cloud account.
+5. Define keys **on the PC**, e.g. `CTRL+ALT+2` named “Plec la baie”; load the remote
+   buttons on the phone. The shortcut must already have a meaning in your OS/app.
+   The built-in **Blochează PC-ul** uses the OS lock action without requiring a
+   shortcut. Requests name a registered profile; the phone cannot supply arbitrary
+   commands, edit profiles remotely, or execute shell scripts. Offline key actions
+   are not retried later; expired jobs are discarded. Linux ignores custom key
+   injection while locked. OS-reserved combinations and secure Windows desktops
+   can reject synthetic input.
+
+The Android overlay can align a single blinking iris around a reported camera
+cutout, with horizontal/vertical calibration and a normal-capsule fallback. The
+physical lens has no drawable pixels, and protected system surfaces may hide the
+app's overlay. This was tested with an emulated punch-hole, **not a Galaxy S26**.
+
+**Voice limits:** Android `SpeechRecognizer` is provider-dependent and is not an
+always-on hotword engine. This preview does not offer 24/7 activation with a locked
+screen. A foreground microphone session is always user-started; it never restarts
+at boot. Romanian recognition may require the provider's language pack / network.
+Recognition can pause or fail between phrases; errors retain confirmed text. Raw
+microphone recordings are not stored by Mira. Provider processing may be local or
+remote, according to Android/provider settings. Commands are deterministic; there
+is no bundled chatbot and no ChatGPT/Claude API call or AI API bill.
+
+Transport uses a pinned self-signed TLS identity and a high-entropy pairing token,
+not a shared six-digit password or a trust-all HTTPS connection. Certificates and
+credentials stay in private application storage. The receiver is opt-in, IPv4 LAN
+only (port 45271); it does not change firewall rules or enable itself at startup.
+PDF receipt IDs are immutable/idempotent, names cannot traverse directories, and
+existing differing files are rejected. Keyboard profiles, queues and request sizes
+are bounded. “Accepted” on the phone means queued, not proof that an OS shortcut ran.
+
+Verification includes native Android microphone start/stop, camera-cutout placement,
+PDF pagination/diacritics, Android-to-Rust TLS upload, wrong-certificate rejection,
+receipt replay and profile-only key requests. The key-queue test does not lock or
+send keys to the developer's personal desktop. Windows cross-compiles; actual
+Windows key injection / installer / signature still require Windows validation.
+
+AI enhancement is optional future work. Official [Sign in with ChatGPT](https://developers.openai.com/siwc/quickstart)
+supports eligible plan usage in participating/open-source integrations under plan
+limits; this is distinct from ordinary paid API keys. It is **not implemented** in
+Mira and is unnecessary for these fixed commands/PDFs. [Claude's documentation](https://support.claude.com/en/articles/9876003-i-have-a-paid-claude-subscription-pro-max-team-or-enterprise-plans-why-is-claude-api-usage-billed-separately-from-my-paid-claude-plan)
+describes separate API billing and plan-specific credits; a subscription is not a
+blanket promise of unlimited third-party API usage.
 
 ## Desktop workspace (0.6.0)
 
