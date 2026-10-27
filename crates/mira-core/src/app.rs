@@ -37,7 +37,7 @@ impl AppState {
                 self.now_playing = np.clone();
                 changed
             }
-            AppEvent::Lyrics(ly) => {
+            AppEvent::Lyrics(ly) | AppEvent::LyricsResult { lyrics: ly, .. } => {
                 self.lyrics = ly.clone();
                 // A new set of lyrics invalidates the highlighted line.
                 self.active_line = self

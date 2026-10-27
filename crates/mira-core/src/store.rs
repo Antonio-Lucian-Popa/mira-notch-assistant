@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -56,6 +56,11 @@ pub struct Config {
     pub pomodoro_short_break_min: u32,
     pub pomodoro_long_break_min: u32,
     pub pomodoro_cycles_before_long: u32,
+    pub mascot_theme: String,
+    pub mascot_contextual: bool,
+    pub motion_intensity: f32,
+    pub daily_summary_enabled: bool,
+    pub daily_summary_time: String,
 }
 
 impl Default for Config {
@@ -72,6 +77,11 @@ impl Default for Config {
             pomodoro_short_break_min: 5,
             pomodoro_long_break_min: 15,
             pomodoro_cycles_before_long: 4,
+            mascot_theme: "classic".into(),
+            mascot_contextual: true,
+            motion_intensity: 0.6,
+            daily_summary_enabled: true,
+            daily_summary_time: "21:00".into(),
         }
     }
 }
@@ -139,6 +149,24 @@ pub fn db_path() -> Result<PathBuf> {
 }
 
 /// Handle to the SQLite database, with the schema applied.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+pub struct DailySummary {
+    pub day: String,
+    pub focus_seconds: i64,
+    pub focus_sessions: u32,
+    pub todos_completed: u32,
+    pub reminders_completed: u32,
+    pub water_glasses: u32,
+}
+pub fn local_day(epoch: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_opt(epoch, 0)
+        .single()
+        .map(|t| t.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "1970-01-01".into())
+}
+
 pub struct Store {
     conn: Connection,
 }
@@ -174,12 +202,50 @@ impl Store {
                 done            INTEGER NOT NULL DEFAULT 0,
                 remind_at_epoch INTEGER
             );
+            CREATE TABLE IF NOT EXISTS reminder (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                due_epoch INTEGER NOT NULL,
+                created_epoch INTEGER NOT NULL,
+                notified INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS reminder_due ON reminder(due_epoch, id);
+            CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS activity_day (
+                day TEXT PRIMARY KEY, focus_seconds INTEGER NOT NULL DEFAULT 0,
+                focus_sessions INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS completion_event (
+                day TEXT NOT NULL, kind TEXT NOT NULL, entity INTEGER NOT NULL,
+                slot INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day,kind,entity,slot)
+            );
             CREATE TABLE IF NOT EXISTS water_log (
                 day     TEXT PRIMARY KEY,
                 glasses INTEGER NOT NULL DEFAULT 0
             );
             "#,
         )?;
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(reminder)")?
+            .query_map([], |row| row.get(1))?
+            .collect::<std::result::Result<_, _>>()?;
+        if !columns.iter().any(|name| name == "recurrence") {
+            conn.execute("ALTER TABLE reminder ADD COLUMN recurrence TEXT", [])?;
+        }
+        // Upgrade Linux's original UTC-day-number water keys to calendar dates.
+        let legacy: Vec<(String, u32)> = conn
+            .prepare("SELECT day, glasses FROM water_log WHERE day NOT LIKE '%-%'")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<std::result::Result<_, _>>()?;
+        for (key, glasses) in legacy {
+            if let Ok(day) = key.parse::<i64>() {
+                if let Some(epoch) = day.checked_mul(86400) {
+                    let date = local_day(epoch);
+                    conn.execute("INSERT INTO water_log(day,glasses) VALUES(?1,?2) ON CONFLICT(day) DO UPDATE SET glasses=MAX(glasses,excluded.glasses)", (&date,glasses))?;
+                    conn.execute("DELETE FROM water_log WHERE day=?1", [&key])?;
+                }
+            }
+        }
         Ok(Store { conn })
     }
 
@@ -235,8 +301,22 @@ impl Store {
     }
 
     pub fn set_todo_done(&self, id: i64, done: bool) -> Result<()> {
-        self.conn
-            .execute("UPDATE todo SET done = ?2 WHERE id = ?1", (id, done as i64))?;
+        self.set_todo_done_at(id, done, chrono::Local::now().timestamp())
+    }
+    pub fn set_todo_done_at(&self, id: i64, done: bool, now: i64) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        let changed = tx.execute("UPDATE todo SET done=?2 WHERE id=?1", (id, done as i64))?;
+        if changed > 0 {
+            if done {
+                tx.execute("INSERT OR IGNORE INTO completion_event(day,kind,entity,slot) VALUES(?1,'todo',?2,0)",(local_day(now),id))?;
+            } else {
+                tx.execute(
+                    "DELETE FROM completion_event WHERE day=?1 AND kind='todo' AND entity=?2",
+                    (local_day(now), id),
+                )?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -269,6 +349,175 @@ impl Store {
             })
         })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    // --- Standalone reminders (acknowledged reminders are removed) ---
+    pub fn add_reminder(&self, text: &str, due: i64, now: i64) -> Result<i64> {
+        let text = crate::reminder::validate(text, due, now)?;
+        self.conn.execute(
+            "INSERT INTO reminder (text, due_epoch, created_epoch) VALUES (?1, ?2, ?3)",
+            (text, due, now),
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn reminders(&self) -> Result<Vec<crate::reminder::Reminder>> {
+        let mut stmt = self.conn.prepare("SELECT id, text, due_epoch, created_epoch, notified, recurrence FROM reminder ORDER BY due_epoch, id")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(crate::reminder::Reminder {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                due_epoch: row.get(2)?,
+                created_epoch: row.get(3)?,
+                notified: row.get(4)?,
+                recurrence: row
+                    .get::<_, Option<String>>(5)?
+                    .map(|json| {
+                        serde_json::from_str(&json).map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                5,
+                                rusqlite::types::Type::Text,
+                                Box::new(e),
+                            )
+                        })
+                    })
+                    .transpose()?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub fn add_natural_reminder(&self, input: &str, now: i64) -> Result<i64> {
+        let draft = crate::natural::parse_local(input, now)?;
+        self.add_reminder_draft(&draft, now)
+    }
+    pub fn add_reminder_draft(&self, draft: &crate::natural::Draft, now: i64) -> Result<i64> {
+        let title = crate::reminder::validate(&draft.title, draft.due, now)?;
+        let recurrence = draft
+            .recurrence
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        self.conn.execute(
+            "INSERT INTO reminder(text,due_epoch,created_epoch,recurrence) VALUES(?1,?2,?3,?4)",
+            (title, draft.due, now, recurrence),
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+    /// Complete this occurrence; a recurring series advances in local calendar
+    /// time. Missed occurrences are skipped, not replayed in a notification storm.
+    pub fn complete_reminder(&self, id: i64, now: i64) -> Result<()> {
+        use chrono::TimeZone;
+        let r = self
+            .reminders()?
+            .into_iter()
+            .find(|r| r.id == id)
+            .ok_or_else(|| crate::Error::other("Reminder no longer exists"))?;
+        let next = if let Some(rule) = &r.recurrence {
+            let anchor = chrono::Local
+                .timestamp_opt(now.max(r.due_epoch), 0)
+                .single()
+                .ok_or_else(|| crate::Error::other("Dată invalidă"))?;
+            Some(rule.next_after(anchor)?)
+        } else {
+            None
+        };
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("INSERT OR IGNORE INTO completion_event(day,kind,entity,slot) VALUES(?1,'reminder',?2,?3)", (local_day(now),id,r.due_epoch))?;
+        if let Some(next) = next {
+            tx.execute(
+                "UPDATE reminder SET due_epoch=?2,created_epoch=?3,notified=0 WHERE id=?1",
+                (id, next, now),
+            )?;
+        } else {
+            tx.execute("DELETE FROM reminder WHERE id=?1", [id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn complete_occurrence(&self, id: i64, expected_due: i64, now: i64) -> Result<()> {
+        if self
+            .reminders()?
+            .iter()
+            .any(|r| r.id == id && r.due_epoch == expected_due)
+        {
+            self.complete_reminder(id, now)?;
+        }
+        Ok(())
+    }
+    pub fn get_meta(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT value FROM app_meta WHERE key=?1", [key], |r| {
+                r.get(0)
+            })
+            .optional()?)
+    }
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute("INSERT INTO app_meta(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(key,value))?;
+        Ok(())
+    }
+    pub fn record_focus(&self, now: i64, seconds: i64, completed: bool) -> Result<()> {
+        self.record_focus_batch(now, seconds, completed as u32)
+    }
+    pub fn record_focus_batch(&self, now: i64, seconds: i64, sessions: u32) -> Result<()> {
+        if seconds < 0 {
+            return Err(crate::Error::other("Negative focus duration"));
+        }
+        self.conn.execute("INSERT INTO activity_day(day,focus_seconds,focus_sessions) VALUES(?1,?2,?3) ON CONFLICT(day) DO UPDATE SET focus_seconds=focus_seconds+excluded.focus_seconds,focus_sessions=focus_sessions+excluded.focus_sessions", (local_day(now),seconds,sessions))?;
+        Ok(())
+    }
+    pub fn daily_summary(&self, day: &str) -> Result<DailySummary> {
+        chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+            .map_err(|_| crate::Error::other("Invalid calendar day"))?;
+        let (focus_seconds, focus_sessions) = self
+            .conn
+            .query_row(
+                "SELECT focus_seconds,focus_sessions FROM activity_day WHERE day=?1",
+                [day],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, u32>(1)?)),
+            )
+            .optional()?
+            .unwrap_or_default();
+        let count = |kind: &str| -> Result<u32> {
+            Ok(self.conn.query_row(
+                "SELECT COUNT(*) FROM completion_event WHERE day=?1 AND kind=?2",
+                (day, kind),
+                |r| r.get(0),
+            )?)
+        };
+        Ok(DailySummary {
+            day: day.into(),
+            focus_seconds,
+            focus_sessions,
+            todos_completed: count("todo")?,
+            reminders_completed: count("reminder")?,
+            water_glasses: self.water_glasses(day)?,
+        })
+    }
+
+    pub fn snooze_reminder(&self, id: i64, due: i64, now: i64) -> Result<()> {
+        crate::reminder::validate("Snooze", due, now)?;
+        let changed = self.conn.execute(
+            "UPDATE reminder SET due_epoch=?2, created_epoch=?3, notified=0 WHERE id=?1",
+            (id, due, now),
+        )?;
+        if changed == 0 {
+            return Err(crate::Error::other("Reminder no longer exists"));
+        }
+        Ok(())
+    }
+
+    pub fn mark_reminder_notified(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("UPDATE reminder SET notified=1 WHERE id=?1", [id])?;
+        Ok(())
+    }
+
+    pub fn remove_reminder(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM reminder WHERE id=?1", [id])?;
+        Ok(())
     }
 
     // --- Water (per day) ---
@@ -419,5 +668,149 @@ mod tests {
         // Reopen and confirm persistence.
         let store = Store::open(&path).unwrap();
         assert_eq!(store.shelf_items().unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod reminder_tests {
+    use super::*;
+    #[test]
+    fn reminders_survive_restart_and_snooze_rearms() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mira.db");
+        let id;
+        {
+            let store = Store::open(&path).unwrap();
+            store.add_todo("A separate task").unwrap();
+            id = store.add_reminder("  Call Mom  ", 200, 100).unwrap();
+            store.add_reminder("Earlier", 150, 100).unwrap();
+            store.mark_reminder_notified(id).unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let items = store.reminders().unwrap();
+        assert_eq!(items[0].text, "Earlier");
+        assert_eq!(items[1].text, "Call Mom");
+        assert!(items[1].notified);
+        store.snooze_reminder(id, 500, 200).unwrap();
+        let item = &store.reminders().unwrap()[1];
+        assert!(!item.notified);
+        assert_eq!((item.due_epoch, item.created_epoch), (500, 200));
+        store.remove_reminder(id).unwrap();
+        assert_eq!(store.reminders().unwrap().len(), 1);
+        assert_eq!(store.todos().unwrap().len(), 1);
+        assert!(store.snooze_reminder(id, 700, 600).is_err());
+    }
+    #[test]
+    fn invalid_reminders_do_not_change_database() {
+        let store = Store::open_in_memory().unwrap();
+        assert!(store.add_reminder("", 200, 100).is_err());
+        assert!(store.add_reminder("Call", 100, 100).is_err());
+        assert!(store.reminders().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod companion_tests {
+    use super::*;
+    use chrono::{Datelike, Local, TimeZone, Timelike};
+    #[test]
+    fn recurring_completion_is_idempotent_and_survives_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("companion.db");
+        let now = Local
+            .with_ymd_and_hms(2026, 10, 27, 8, 0, 0)
+            .unwrap()
+            .timestamp();
+        let id;
+        let original_due;
+        {
+            let store = Store::open(&path).unwrap();
+            id = store
+                .add_natural_reminder("Raport în fiecare zi la 9", now)
+                .unwrap();
+            original_due = store.reminders().unwrap()[0].due_epoch;
+            store
+                .complete_occurrence(id, original_due, original_due)
+                .unwrap();
+            let next = store.reminders().unwrap()[0].due_epoch;
+            store
+                .complete_occurrence(id, original_due, original_due)
+                .unwrap();
+            assert_eq!(store.reminders().unwrap()[0].due_epoch, next);
+            assert_eq!(
+                store
+                    .daily_summary(&local_day(now))
+                    .unwrap()
+                    .reminders_completed,
+                1
+            );
+        }
+        let store = Store::open(&path).unwrap();
+        let r = store.reminders().unwrap().remove(0);
+        let next = Local.timestamp_opt(r.due_epoch, 0).unwrap();
+        assert_eq!((next.day(), next.hour()), (28, 9));
+        assert!(r.recurrence.is_some());
+        assert!(!r.notified);
+        store.snooze_reminder(id, r.due_epoch + 300, now).unwrap();
+        assert!(store.reminders().unwrap()[0].recurrence.is_some());
+        store.remove_reminder(id).unwrap();
+        assert!(store.reminders().unwrap().is_empty());
+        assert_eq!(
+            store
+                .daily_summary(&local_day(now))
+                .unwrap()
+                .reminders_completed,
+            1
+        );
+    }
+    #[test]
+    fn summary_uses_real_events_and_does_not_duplicate_task_completions() {
+        let s = Store::open_in_memory().unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 10, 27, 12, 0, 0)
+            .unwrap()
+            .timestamp();
+        let day = local_day(now);
+        let id = s.add_todo("Actual task").unwrap();
+        s.set_todo_done_at(id, true, now).unwrap();
+        s.set_todo_done_at(id, true, now).unwrap();
+        s.record_focus(now, 60, true).unwrap();
+        s.record_focus_batch(now, 120, 0).unwrap();
+        s.water_adjust(&day, 3).unwrap();
+        let report = s.daily_summary(&day).unwrap();
+        assert_eq!(
+            (
+                report.focus_seconds,
+                report.focus_sessions,
+                report.todos_completed,
+                report.water_glasses
+            ),
+            (180, 1, 1, 3)
+        );
+        s.set_todo_done_at(id, false, now).unwrap();
+        assert_eq!(s.daily_summary(&day).unwrap().todos_completed, 0);
+        assert_eq!(s.daily_summary("2026-10-28").unwrap().focus_seconds, 0);
+        assert!(s.daily_summary("not-a-date").is_err());
+    }
+    #[test]
+    fn old_database_schema_and_water_keys_migrate_without_losing_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE reminder(id INTEGER PRIMARY KEY AUTOINCREMENT,text TEXT NOT NULL,due_epoch INTEGER NOT NULL,created_epoch INTEGER NOT NULL,notified INTEGER NOT NULL DEFAULT 0); INSERT INTO reminder(text,due_epoch,created_epoch) VALUES('Old reminder',200,100); CREATE TABLE water_log(day TEXT PRIMARY KEY, glasses INTEGER NOT NULL DEFAULT 0); INSERT INTO water_log VALUES('20753',4);").unwrap();
+        drop(conn);
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.reminders().unwrap()[0].text, "Old reminder");
+        assert!(store.reminders().unwrap()[0].recurrence.is_none());
+        let migrated = local_day(20753 * 86400);
+        assert_eq!(store.water_glasses(&migrated).unwrap(), 4);
+        drop(store);
+        assert_eq!(
+            Store::open(&path)
+                .unwrap()
+                .water_glasses(&migrated)
+                .unwrap(),
+            4
+        );
     }
 }

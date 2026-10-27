@@ -121,8 +121,8 @@
 }
 
 .mira-art {
-    width: 66px;
-    height: 66px;
+    width: 48px;
+    height: 48px;
     border-radius: 14px;
     background-color: #26262b;
 }
@@ -578,3 +578,204 @@
     color: #ff5a8a;
     font-size: 13px;
 }
+
+/* Standalone reminders — warm accents, compact countdown card. */
+.mira-reminders { spacing: 16px; }
+.mira-reminder-hero { spacing: 5px; min-width: 150px; max-width: 170px; padding: 4px 10px; }
+.mira-reminder-eyebrow { font-size: 9px; font-weight: 700; color: #9a9aa0; letter-spacing: 1px; }
+.mira-reminder-time { font-size: 32px; font-weight: 800; color: #8fb0ff; }
+.mira-reminder-time.soon { color: #ffb65c; }
+.mira-reminder-time.urgent, .mira-reminder-time.due { color: #ff7878; }
+.mira-reminder-name { font-size: 12px; color: #f2f2f3; max-width: 160px; }
+.mira-reminder-right { spacing: 4px; }
+.mira-reminder-form { spacing: 5px; }
+.mira-reminder-entry, .mira-reminder-when {
+    padding: 5px 8px; border-radius: 9px; background-color: #1c1c22;
+    border: 1px solid #303039; color: #f2f2f3; font-size: 11px;
+}
+.mira-reminder-entry:focus, .mira-reminder-when:focus { border-color: #ffb65c; }
+.mira-reminder-when { width: 65px; }
+.mira-reminder-presets { spacing: 5px; }
+.mira-reminder-preset { padding: 2px 8px; border-radius: 7px; background-color: #24212a; color: #ffce91; font-size: 10px; }
+.mira-reminder-preset:hover { background-color: #3b3040; }
+.mira-reminder-feedback { max-width: 285px; color: #a5a5b0; font-size: 9px; }
+.mira-reminder-list { spacing: 4px; }
+.mira-reminder-row { spacing: 6px; padding: 3px 7px; border-radius: 9px; background-color: #19191f; }
+.mira-reminder-row.soon { background-color: #292218; }
+.mira-reminder-row.urgent, .mira-reminder-row.due { background-color: #301e24; }
+.mira-reminder-row-name { font-size: 11px; color: #e6e6ef; max-width: 155px; }
+.mira-reminder-row-time { color: #ffce91; font-size: 11px; font-weight: 700; min-width: 43px; }
+.mira-reminder-empty { font-size: 10px; color: #9a9aa0; padding-top: 6px; }
+.mira-reminder-badge { margin-left: 9px; padding: 2px 6px; border-radius: 7px; background-color: #19202e; color: #aec8ff; font-size: 10px; font-weight: 700; }
+.mira-reminder-badge.soon { background-color: #30261a; color: #ffce91; }
+.mira-reminder-badge.urgent, .mira-reminder-badge.due { background-color: #391f28; color: #ff9b9b; }
+.mira-reminder-badge:hover { background-color: #3c3544; }
+
+.mira-lyrics-search { spacing: 5px; }
+.mira-lyrics-search-status { font-size: 9px; color: #a6b4cf; max-width: 470px; }
+.mira-routine-label { font-size: 13px; max-width: 410px; line-height: 1.4; }
+.mira-plain-lyrics { font-size: 12px; line-height: 1.5; color: #d8dfed; padding: 4px 10px; }
+.mira-routine-detail { font-size: 12px; color: #c9d2e5; padding-top: 5px; }
+
+/* Native mascot themes; pupil children move and blink with the eye actor. */
+.mira-eye.theme-classic { border-radius: 99px; background-color: #8fb0ff; }
+.mira-eye.theme-robot { border-radius: 2px; background-color: #76f5bf; box-shadow: 0 0 7px 0 #76f5bf88; }
+.mira-eye.theme-cat { border-radius: 8px 3px 8px 3px; background-color: #ffcf77; box-shadow: 0 0 6px 0 #ffcf7766; }
+.mira-cat-pupil { width: 3px; height: 8px; border-radius: 2px; background-color: #221b12; }
+.mira-eye.theme-pixel { border-radius: 0; background-color: #c5a0ff; box-shadow: 2px 2px 0 0 #634185; }
+.mira-summary { spacing: 4px; }
+.mira-summary-row { spacing: 6px; }
+.mira-summary-card { padding: 3px 9px; border-radius: 10px; background-color: #1c1c25; }
+.mira-summary-number { font-size: 18px; font-weight: 700; color: #b8d1ff; }
+.mira-reminder-row-name { max-width: 120px; }
+.mira-eye.theme-classic.love, .mira-eye.theme-robot.love, .mira-eye.theme-cat.love, .mira-eye.theme-pixel.love { background-color: #ff7aa6; }
+
+/* Desktop workbench: soft graphite surfaces, mint accents, generous spacing. */
+.mira-notch { background-color: rgba(13, 20, 29, .98); border: 1px solid #2b3b4b; border-radius: 18px; box-shadow: 0 12px 32px 0 rgba(0,0,0,.36); }
+.mira-floating { border-radius: 26px; }
+.mira-open {padding:12px;spacing:8px;}
+.mira-header {padding-bottom:10px;border-bottom:1px solid #283646;spacing:10px;}
+.mira-work-page {spacing:12px;padding:8px 6px;}
+.mira-work-actions {spacing:8px;}
+.mira-work-caption {color:#9eb6c8;font-size:11px;}
+.mira-work-button {background-color:#223342;color:#d8e9ef;border-radius:12px;padding:9px 12px;font-size:11px;}
+.mira-work-button:hover {background-color:#315042;color:#abf3cb;}
+.mira-work-button:focus {border:1px solid #85efb7;}
+.mira-work-cards {spacing:9px;padding:6px 4px;}
+.mira-work-file {background-color:#192735;border:1px solid #2d4253;border-radius:15px;padding:5px;spacing:5px;}
+.mira-work-file-inner {spacing:14px;}
+.mira-work-file-name {color:#ecf5f5;font-size:13px;}
+.mira-work-file-icon {color:#9ee8c0;}
+.mira-work-note,.mira-work-query {background-color:#111a25;color:#e7f2f4;border:1px solid #304355;border-radius:14px;padding:14px;font-size:13px;}
+.mira-work-note:focus,.mira-work-query:focus {border-color:#85efb7;}
+.mira-work-hit,.mira-work-clip {text-align:left;}
+.mira-work-grip {color:#85efb7;font-size:14px;padding:4px 7px;}
+.mira-dots {spacing:8px;padding:6px;}
+.mira-dot.active {background-color:#85efb7;}
+
+/* Primary navigation stays readable; secondary tools live in an expandable row. */
+.mira-header {spacing:10px;padding:2px 0 12px;border-bottom:1px solid rgba(255,255,255,.07);}
+.mira-header-stamp {min-width:60px;spacing:3px;}
+.mira-header-stamp .mira-time {font-size:14px;font-weight:700;text-align:right;}
+.mira-header-stamp .mira-date {font-size:10px;color:#8c999f;text-align:right;}
+.mira-top-tabs {spacing:4px;}
+.mira-top-tab {min-width:20px;min-height:40px;padding:0 10px;border-radius:13px;color:#89999f;transition-duration:140ms;}
+.mira-top-tab:hover {background-color:rgba(255,255,255,.07);color:#eef8f5;}
+.mira-top-tab:focus {background-color:#263d38;color:#b0f4d6;}
+.mira-top-tab.active {background-color:#233d35;color:#a0edcd;}
+.mira-tab-content {spacing:7px;font-size:12px;font-weight:600;}
+.mira-extra-tabs {spacing:4px;padding:4px 0 8px;}
+.mira-body {spacing:0;}
+.mira-open {padding:10px 14px 6px;}
+.mira-controls {spacing:22px;}
+.mira-music-controls {min-height:80px;padding-top:6px;}
+.mira-ctl-btn {width:42px;height:42px;padding:0;border-radius:30px;background-color:#20212a;color:#e7eafb;}
+.mira-ctl-btn:hover {background-color:#2d3040;}
+.mira-ctl-play {width:60px;height:60px;border-radius:31px;background-color:#5b86ff;color:white;}
+.mira-ctl-play:hover {background-color:#789bff;}
+
+.mira-ctl-btn {width:32px;height:32px;min-width:0;min-height:0;border-radius:17px;padding:0;}
+.mira-ctl-play {width:44px;height:44px;border-radius:23px;}
+.mira-music-controls {min-height:56px;}
+.mira-reminders {spacing:7px;}
+.mira-reminder-hero {min-width:0;max-width:1000px;padding:0;spacing:10px;}
+.mira-reminder-time {font-size:22px;}
+.mira-reminder-name {max-width:1000px;}
+.mira-reminder-right {spacing:6px;}
+.mira-reminder-form {spacing:7px;}
+.mira-reminder-timing {spacing:7px;}
+.mira-reminder-entry,.mira-reminder-when {padding:7px 9px;font-size:12px;border-radius:8px;}
+.mira-reminder-when {width:70px;}
+.mira-reminder-presets {spacing:4px;}
+.mira-reminder-preset {padding:4px 6px;}
+.mira-reminder-add {padding:7px 10px;border-radius:8px;background-color:#26344d;color:#c4d5ff;font-size:11px;}
+.mira-reminder-add:hover {background-color:#34496a;}
+.mira-reminder-feedback {max-width:1000px;}
+
+.mira-shake-action {spacing:4px;padding:6px 0;}
+.mira-shake-choices {spacing:4px;}
+.mira-shake-choices .mira-work-button {padding:5px 7px;font-size:10px;}
+
+/* Shared graphite surfaces and a single mint action accent. */
+.mira-notch {background-color:rgba(14,19,23,.98);border:1px solid #2d383d;box-shadow:0 12px 36px 0 rgba(0,0,0,.4);}
+.mira-open {padding:14px 16px 8px;spacing:12px;}
+.mira-work-page {spacing:14px;padding:4px 2px;}
+.mira-work-caption {color:#9eafb5;font-size:12px;}
+.mira-work-button {background-color:#242e34;color:#dfe9e9;border-radius:11px;padding:10px 13px;font-size:12px;font-weight:600;border:1px solid transparent;transition-duration:140ms;}
+.mira-work-button:hover {background-color:#303f45;color:#ffffff;}
+.mira-work-button:focus {border-color:#99e8c9;}
+.mira-button-primary {background-color:#9ae8c6;color:#102a20;}
+.mira-button-primary:hover {background-color:#b1f3d7;color:#102a20;}
+.mira-button-danger {background-color:#39272c;color:#f2adb4;}
+.mira-button-danger:hover {background-color:#503239;color:#ffd5da;}
+.mira-work-query,.mira-work-note {background-color:#11191e;border-color:#303e45;border-radius:11px;padding:11px 12px;font-size:13px;}
+.mira-phone-heading {spacing:12px;}
+.mira-phone-titles {spacing:5px;}
+.mira-section-title {font-size:20px;font-weight:700;color:#f0f6f4;}
+.mira-section-subtitle {font-size:14px;font-weight:700;color:#e1edeb;padding-top:4px;}
+.mira-surface {spacing:12px;padding:14px;background-color:#182227;border:1px solid #29363b;border-radius:16px;}
+.mira-phone-pairing {spacing:14px;}
+.mira-phone-setup {spacing:10px;}
+.mira-status-badge {font-size:11px;font-weight:500;color:#9caaad;padding:5px 0;}
+.mira-status-badge.online {color:#9ae8c6;}
+.mira-shake-action {spacing:8px;padding:12px;background-color:#202c31;border-radius:12px;}
+.mira-shortcut-name {font-size:13px;font-weight:600;color:#edf6f3;}
+.mira-keycap {font-size:11px;color:#a8dbcb;padding:4px 7px;background-color:#14251f;border-radius:6px;}
+.mira-shake-choices {spacing:6px;}
+.mira-shake-choices .mira-work-button {padding:7px 10px;font-size:11px;}
+
+.mira-extra-row {spacing:4px;}
+.mira-extra-row .mira-top-tab {width:90px;padding:0 5px;}
+.mira-extra-row .mira-tab-content {font-size:11px;spacing:5px;}
+.mira-shortcut-list {spacing:10px;}
+
+/* Reserve a gutter so the scroll thumb never overlaps a card or status label. */
+.mira-content-scroll {padding-right:2px;}
+.mira-content-scroll StScrollBar {padding:0 0 0 8px;}
+.mira-content-scroll StScrollBar StBin#trough {background-color:transparent;}
+.mira-content-scroll StScrollBar StButton#vhandle {background-color:#3c4b50;border-radius:8px;min-width:4px;}
+.mira-content-scroll StScrollBar StButton#vhandle:hover {background-color:#75968a;}
+.mira-phone-sections {spacing:3px;padding:3px;background-color:#172126;border-radius:12px;}
+.mira-phone-section {padding:7px 9px;background-color:transparent;color:#9aacb2;font-size:11px;border-radius:9px;}
+.mira-phone-section.active {background-color:#2b3e37;color:#b4f1d7;}
+.mira-phone-section:hover {background-color:#2b383c;}
+.mira-phone-pairing {padding-top:0;}
+
+.mira-phone-feedback {font-size:12px;color:#ffc0ad;padding:6px 8px;}
+
+/* ---- weather peek (summary page) ---- */
+.mira-weather {font-size:12px;font-weight:600;color:#cfe3ff;padding:2px 2px 4px;}
+
+/* ---- color themes ----
+ * A `mira-ctheme-<name>` class on the root retints the CSS-only surfaces to
+ * match the palette JS applies to the cairo-drawn ring, focus arc and progress.
+ * `default` intentionally adds no rules so the base stylesheet stands. */
+.mira-ctheme-midnight .mira-viz-bar, .mira-ctheme-midnight .mira-header-viz-bar {background-color:#9cc2ff;}
+.mira-ctheme-midnight .mira-top-tab.active {background-color:#1d3250;color:#bcd6ff;}
+.mira-ctheme-midnight .mira-dot.active {background-color:#6aa0ff;}
+.mira-ctheme-midnight .mira-pill-accent {background-color:#2b4a74;}
+.mira-ctheme-midnight .mira-summary-number {color:#9cc2ff;}
+
+.mira-ctheme-neon .mira-viz-bar, .mira-ctheme-neon .mira-header-viz-bar {background-color:#ff6bd6;}
+.mira-ctheme-neon .mira-top-tab.active {background-color:#2a1c47;color:#e0b9ff;}
+.mira-ctheme-neon .mira-dot.active {background-color:#b16bff;}
+.mira-ctheme-neon .mira-pill-accent {background-color:#6a2caf;}
+.mira-ctheme-neon .mira-summary-number {color:#ff9ee6;}
+
+.mira-ctheme-nord .mira-viz-bar, .mira-ctheme-nord .mira-header-viz-bar {background-color:#a3be8c;}
+.mira-ctheme-nord .mira-top-tab.active {background-color:#3b4252;color:#d8dee9;}
+.mira-ctheme-nord .mira-dot.active {background-color:#88c0d0;}
+.mira-ctheme-nord .mira-pill-accent {background-color:#4c566a;}
+.mira-ctheme-nord .mira-summary-number {color:#a9cfe0;}
+
+.mira-ctheme-dracula .mira-viz-bar, .mira-ctheme-dracula .mira-header-viz-bar {background-color:#ff79c6;}
+.mira-ctheme-dracula .mira-top-tab.active {background-color:#343746;color:#f8f8f2;}
+.mira-ctheme-dracula .mira-dot.active {background-color:#bd93f9;}
+.mira-ctheme-dracula .mira-pill-accent {background-color:#6b4ba8;}
+.mira-ctheme-dracula .mira-summary-number {color:#caa9ff;}
+
+.mira-ctheme-sunset .mira-viz-bar, .mira-ctheme-sunset .mira-header-viz-bar {background-color:#ff9e7a;}
+.mira-ctheme-sunset .mira-top-tab.active {background-color:#38201a;color:#ffd1ba;}
+.mira-ctheme-sunset .mira-dot.active {background-color:#ff8c5a;}
+.mira-ctheme-sunset .mira-pill-accent {background-color:#b5582f;}
+.mira-ctheme-sunset .mira-summary-number {color:#ffb694;}

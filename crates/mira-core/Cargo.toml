@@ -19,6 +19,15 @@ dirs = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+qrcodegen = "1.8"
+sha2 = "0.10"
+getrandom = "0.2"
+base64 = "0.22"
+
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["rt", "macros", "sync", "time", "test-util"] }
 tempfile = "3"

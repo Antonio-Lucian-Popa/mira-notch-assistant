@@ -9,8 +9,8 @@
 #   * Permissions are least-privilege: read everywhere, `contents: write` only
 #     on the job that publishes the release.
 #
-# What it does: computes the next vX.Y.Z tag, builds the Debian package (and the
-# Windows .exe once the `mira-win` crate exists), and publishes a GitHub Release
+# What it does: computes the next vX.Y.Z tag, builds the Debian package, Android
+# preview APK, Windows executable and installer, and publishes a GitHub Release
 # with those artifacts attached.
 
 name: release
@@ -18,6 +18,7 @@ name: release
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths-ignore:
       - 'website/**'
       - '**/*.md'
@@ -30,17 +31,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Serialize tag creation across main, manual runs and accepted version tags.
+  group: mira-release
   cancel-in-progress: false
 
 jobs:
   # Decide the next tag: bump the patch of the latest v* tag, with the
   # Cargo.toml version as a floor (lets you jump minor/major via Cargo.toml).
   version:
+    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}
       version: ${{ steps.v.outputs.version }}
+      has_windows: ${{ steps.v.outputs.has_windows }}
+      android_code: ${{ steps.v.outputs.android_code }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,7 +53,24 @@ jobs:
       - id: v
         run: |
           set -euo pipefail
+          # Above the historical preview code (5); stable when a job is retried.
+          echo "android_code=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
+          # The Windows job can't use hashFiles() in its job-level `if`, so we
+          # detect the crate here (repo is checked out) and expose a flag.
+          if [ -f crates/mira-win/Cargo.toml ]; then
+            echo "has_windows=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_windows=false" >> "$GITHUB_OUTPUT"
+          fi
           cargo_ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+            test "$version" = "$cargo_ver"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "tag=v$version" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           latest="$(git tag -l 'v*' --sort=-v:refname | head -n1 || true)"
           if [ -z "$latest" ]; then
             version="$cargo_ver"
@@ -77,6 +99,18 @@ jobs:
           sudo apt-get install -y --no-install-recommends libglib2.0-bin dpkg-dev zip
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Verify source
+        run: |
+          cargo fmt --check
+          cargo test --workspace --locked
+          cargo test -p mira-core --test lrclib_http --locked -- --ignored
+          node gnome-extension/tests/gaze.test.mjs
+          node gnome-extension/tests/reminders.test.mjs
+          node gnome-extension/tests/routines.test.mjs
+          node gnome-extension/tests/mascot.test.mjs
+          MIRA_TEST_PRIVATE_BUS=1 dbus-run-session -- cargo test -p mira-platform-linux --test mpris_sessions --locked
+          cargo build --locked -p mira-daemon
+          dbus-run-session -- python3 crates/mira-daemon/tests/reminders_dbus.py
       - name: Build the .deb
         env:
           MIRA_VERSION: ${{ needs.version.outputs.version }}
@@ -87,11 +121,24 @@ jobs:
           path: target/debian/*.deb
           if-no-files-found: error
 
-  # Activates automatically once crates/mira-win exists. Skipped until then.
+  # Reuse the same Android SDK setup and tests exercised by pull requests.
+  build-android:
+    needs: version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/mobile.yml
+    with:
+      release_version: ${{ needs.version.outputs.version }}
+      release_version_code: ${{ fromJSON(needs.version.outputs.android_code || '0') }}
+
+  # Build the native Windows host and its per-user installer.
   build-windows:
+    permissions:
+      contents: read
+      actions: read
     runs-on: windows-latest
     needs: version
-    if: ${{ hashFiles('crates/mira-win/Cargo.toml') != '' }}
+    if: ${{ needs.version.outputs.has_windows == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
@@ -99,22 +146,114 @@ jobs:
       - name: Build the Windows binary
         env:
           MIRA_VERSION: ${{ needs.version.outputs.version }}
-        run: cargo build --release -p mira-win
-      - name: Collect the .exe
-        shell: bash
+        run: cargo build --release --locked -p mira-win
+      - name: Check SignPath configuration
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_POLICY_SLUG: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          SIGNPATH_CERTIFICATE_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
         run: |
-          mkdir -p dist
-          cp target/release/mira*.exe dist/ 2>/dev/null || true
+          foreach ($name in @('SIGNPATH_API_TOKEN','SIGNPATH_ORGANIZATION_ID','SIGNPATH_PROJECT_SLUG','SIGNPATH_POLICY_SLUG','SIGNPATH_CERTIFICATE_SUBJECT')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing signing configuration: $name" }
+          }
+      - name: Prepare application and uninstaller for signing
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        shell: pwsh
+        run: ./packaging/windows/prepare-signing.ps1 -Version '${{ needs.version.outputs.version }}'
+      - name: Upload unsigned components
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        id: unsigned-components
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-components
+          path: packaging/windows/Output/unsigned-components/*
+          if-no-files-found: error
+      - name: Sign application and uninstaller with SignPath
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: mira-components
+          github-artifact-id: ${{ steps.unsigned-components.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-components
+      - name: Verify signed components and restore Inno cache
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        shell: pwsh
+        env:
+          EXPECTED_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
+        run: |
+          ./packaging/windows/verify-signatures.ps1 -Paths @('signed-components/mira-win.exe','signed-components/mira-uninstaller.exe') -ExpectedSubject $env:EXPECTED_SUBJECT
+          $manifest = Get-Content packaging/windows/Output/uninstaller-manifest.json -Raw | ConvertFrom-Json
+          Copy-Item signed-components/mira-uninstaller.exe $manifest.uninstallerCachePath -Force
+          Copy-Item signed-components/mira-win.exe target/release/mira-win.exe -Force
+      - name: Build the per-user installer
+        shell: pwsh
+        env:
+          SIGNPATH_ENABLED: ${{ vars.SIGNPATH_ENABLED }}
+        run: |
+          $arguments = @('/DMiraVersion=${{ needs.version.outputs.version }}')
+          if ($env:SIGNPATH_ENABLED -eq 'true') { $arguments += '/DSignPath' }
+          $arguments += 'packaging/windows/mira.iss'
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force unsigned-installer | Out-Null
+          $setup = @(Get-ChildItem packaging/windows/Output/*_setup.exe)
+          if ($setup.Count -ne 1) { throw 'Expected exactly one installer.' }
+          Copy-Item $setup[0].FullName unsigned-installer/setup.exe
+      - name: Upload unsigned installer
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-installer
+          path: unsigned-installer/setup.exe
+          if-no-files-found: error
+      - name: Sign installer with SignPath
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: mira-installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-installer
+      - name: Collect verified Windows artifacts
+        shell: pwsh
+        env:
+          SIGNPATH_ENABLED: ${{ vars.SIGNPATH_ENABLED }}
+          EXPECTED_SUBJECT: ${{ vars.SIGNPATH_CERTIFICATE_SUBJECT }}
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          if ($env:SIGNPATH_ENABLED -eq 'true') {
+            ./packaging/windows/verify-signatures.ps1 -Paths @('target/release/mira-win.exe','signed-installer/setup.exe') -ExpectedSubject $env:EXPECTED_SUBJECT
+            Copy-Item signed-installer/setup.exe 'dist/mira_${{ needs.version.outputs.version }}_windows_x64_setup.exe'
+            @{ signed = $true; publisher = $env:EXPECTED_SUBJECT; provider = 'SignPath' } | ConvertTo-Json | Set-Content dist/windows-signing-status.json
+          } else {
+            Copy-Item unsigned-installer/setup.exe 'dist/mira_${{ needs.version.outputs.version }}_windows_x64_setup.exe'
+            @{ signed = $false; reason = 'SignPath not activated; development artifacts only' } | ConvertTo-Json | Set-Content dist/windows-signing-status.json
+          }
+          Copy-Item target/release/mira-win.exe dist/mira-win.exe
       - uses: actions/upload-artifact@v4
         with:
           name: mira-windows
-          path: dist/*.exe
-          if-no-files-found: warn
+          path: dist/*
+          if-no-files-found: error
 
   release:
     runs-on: ubuntu-latest
-    needs: [version, build-linux, build-windows]
-    if: ${{ always() && needs.build-linux.result == 'success' }}
+    needs: [version, build-linux, build-android, build-windows]
+    if: ${{ always() && needs.version.result == 'success' && needs.build-linux.result == 'success' && needs.build-android.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') }}
     permissions:
       contents: write
     steps:
@@ -130,6 +269,17 @@ jobs:
         with:
           name: mira-windows
           path: artifacts
+      - name: Download the Android preview APK
+        uses: actions/download-artifact@v4
+        with:
+          name: mira-android-preview
+          path: artifacts
+      - name: Check required release assets and create checksums
+        run: |
+          set -euo pipefail
+          test "$(find artifacts -maxdepth 1 -name '*.deb' | wc -l)" -eq 1
+          test "$(find artifacts -maxdepth 1 -name '*.apk' | wc -l)" -eq 1
+          (cd artifacts && sha256sum *.deb *.apk > SHA256SUMS)
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -139,5 +289,6 @@ jobs:
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
             --title "Mira $TAG" \
+            --notes "Includes Ubuntu .deb and Android preview APK. The APK uses the existing development signing key; production signing is not configured." \
             --generate-notes \
             artifacts/*

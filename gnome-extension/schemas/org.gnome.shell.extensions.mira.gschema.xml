@@ -11,14 +11,27 @@
     <value nick="en" value="2"/>
   </enum>
 
+  <enum id="org.gnome.shell.extensions.mira.colortheme">
+    <value nick="default" value="0"/>
+    <value nick="midnight" value="1"/>
+    <value nick="neon" value="2"/>
+    <value nick="nord" value="3"/>
+    <value nick="dracula" value="4"/>
+    <value nick="sunset" value="5"/>
+  </enum>
+
   <schema id="org.gnome.shell.extensions.mira"
           path="/org/gnome/shell/extensions/mira/">
     <key name="mode" enum="org.gnome.shell.extensions.mira.mode">
-      <default>'floating'</default>
+      <default>'integrated'</default>
       <summary>Notch mode</summary>
       <description>Floating pill, or integrated into the panel's clock area.</description>
     </key>
 
+    <key name="panel-layout-version" type="i"><default>0</default><summary>Panel home migration version</summary></key>
+    <key name="desktop-motion" type="s"><choices><choice value="docked"/><choice value="follow"/><choice value="pinned"/><choice value="roam"/></choices><default>'docked'</default><summary>Desktop companion movement</summary></key>
+    <key name="workspace-width" type="i"><range min="440" max="960"/><default>520</default><summary>Workspace width</summary></key>
+    <key name="workspace-height" type="i"><range min="260" max="760"/><default>340</default><summary>Workspace height</summary></key>
     <key name="minimal" type="b">
       <default>false</default>
       <summary>Minimal closed notch</summary>
@@ -68,6 +81,22 @@
       <description>The name used in the daily greeting. Leave empty for a greeting without a name.</description>
     </key>
 
+    <key name="lunch-enabled" type="b"><default>false</default><summary>Lunch greeting enabled</summary></key>
+    <key name="lunch-time" type="s"><default>'13:00'</default><summary>Local lunch time (HH:MM)</summary></key>
+    <key name="work-end-enabled" type="b"><default>false</default><summary>End of work greetings enabled</summary></key>
+    <key name="work-end-time" type="s"><default>'18:00'</default><summary>Local end of work time (HH:MM)</summary></key>
+    <key name="work-end-lead-minutes" type="i"><range min="0" max="60"/><default>5</default><summary>Minutes before end of work to give a heads-up</summary></key>
+    <key name="routine-weekdays-only" type="b"><default>true</default><summary>Lunch and work greetings only Monday to Friday</summary></key>
+    <key name="routine-delivered" type="a{ss}"><default>{}</default><summary>Last local date and schedule delivered per routine</summary></key>
+    <key name="routine-preview" type="s"><default>''</default><summary>Preview routine event</summary></key>
+
+    <key name="mascot-theme" type="s"><choices><choice value="classic"/><choice value="robot"/><choice value="cat"/><choice value="pixel"/></choices><default>'classic'</default><summary>Native mascot appearance</summary></key>
+    <key name="mascot-contextual" type="b"><default>true</default><summary>React to music, focus and evening</summary></key>
+    <key name="motion-intensity" type="d"><range min="0.0" max="1.0"/><default>0.6</default><summary>Personality motion intensity; zero disables expressive movement</summary></key>
+    <key name="mascot-preview" type="s"><default>''</default><summary>Studio preview trigger</summary></key>
+    <key name="daily-summary-enabled" type="b"><default>true</default><summary>Show a daily activity summary</summary></key>
+    <key name="daily-summary-time" type="s"><default>'21:00'</default><summary>Local daily summary time</summary></key>
+
     <key name="eye-style" type="s">
       <default>'auto'</default>
       <summary>Eye animation style</summary>
@@ -84,6 +113,59 @@
       <default>false</default>
       <summary>Birthday preview trigger</summary>
       <description>Toggled from preferences to preview the birthday confetti greeting.</description>
+    </key>
+
+    <key name="color-theme" enum="org.gnome.shell.extensions.mira.colortheme">
+      <default>'default'</default>
+      <summary>Notch color theme</summary>
+      <description>Accent palette for the notch: default, midnight, neon, nord, dracula or sunset.</description>
+    </key>
+
+    <key name="album-glow" type="b">
+      <default>true</default>
+      <summary>Album-art ambient glow</summary>
+      <description>Tint the notch halo and the progress bar with the dominant color of the current cover art.</description>
+    </key>
+
+    <key name="mascot-groove" type="b">
+      <default>true</default>
+      <summary>Mascot grooves to music</summary>
+      <description>Let the eyes bob gently in time with the beat while music plays.</description>
+    </key>
+
+    <key name="scroll-skip" type="b">
+      <default>true</default>
+      <summary>Scroll the closed notch to skip tracks</summary>
+      <description>While music plays, scrolling over the closed notch skips to the next or previous track instead of changing pages.</description>
+    </key>
+
+    <key name="weather-enabled" type="b">
+      <default>false</default>
+      <summary>Show weather on the summary page</summary>
+      <description>Fetch the current weather from the free open-meteo service for the configured coordinates. No account or key is required.</description>
+    </key>
+
+    <key name="weather-lat" type="d">
+      <range min="-90.0" max="90.0"/>
+      <default>44.43</default>
+      <summary>Weather latitude</summary>
+    </key>
+
+    <key name="weather-lon" type="d">
+      <range min="-180.0" max="180.0"/>
+      <default>26.10</default>
+      <summary>Weather longitude</summary>
+    </key>
+
+    <key name="weather-place" type="s">
+      <default>'București'</default>
+      <summary>Weather place label</summary>
+    </key>
+
+    <key name="hidden-pages" type="s">
+      <default>''</default>
+      <summary>Hidden pages</summary>
+      <description>Comma-separated page names to hide from the tabs and navigation (e.g. "clipboard,search").</description>
     </key>
   </schema>
 </schemalist>

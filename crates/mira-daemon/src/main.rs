@@ -12,6 +12,8 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod dbus;
+#[cfg(target_os = "linux")]
+mod workspace;
 
 #[cfg(target_os = "linux")]
 #[tokio::main(flavor = "current_thread")]
@@ -24,7 +26,7 @@ async fn main() {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use std::sync::Arc;
+    use std::sync::{atomic::AtomicU64, Arc};
     use std::time::Duration;
 
     use tokio::sync::Mutex;
@@ -36,6 +38,7 @@ mod linux {
     use mira_core::model::{NowPlaying, MICROS_PER_SEC};
     use mira_core::source::Source;
     use mira_core::store::{self, Config};
+    use mira_core::track::{clean_track, metadata_hidden, TrackKey};
 
     use mira_platform_linux::{new_mpris, UPowerSource};
 
@@ -43,8 +46,8 @@ mod linux {
     use mira_core::store::Store;
 
     use crate::dbus::{
-        self, LyricsIface, MediaIface, PomodoroIface, PowerIface, ServiceIface, Shared, ShelfIface,
-        SystemIface, TodoIface, WaterIface, BUS_NAME, PATH,
+        self, LyricsIface, MediaIface, PomodoroIface, PowerIface, RemindersIface, ServiceIface,
+        Shared, ShelfIface, SummaryIface, SystemIface, TodoIface, WaterIface, BUS_NAME, PATH,
     };
 
     pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,6 +68,7 @@ mod linux {
         .to_string();
 
         let bus = EventBus::default();
+        let events = bus.subscribe();
 
         // One session connection serves both the D-Bus server and MPRIS proxies.
         let conn = zbus::connection::Builder::session().build().await?;
@@ -84,6 +88,9 @@ mod linux {
             store: Mutex::new(store),
             pomodoro: Mutex::new(PomodoroEngine::new(config.pomodoro_config())),
             water_goal: config.water_goal,
+            bus: bus.clone(),
+            lyrics_generation: AtomicU64::new(0),
+            lyrics_manual: Mutex::new(String::new()),
         });
 
         // Register the interfaces, then claim the well-known name.
@@ -161,6 +168,25 @@ mod linux {
                 },
             )
             .await?;
+        server
+            .at(
+                PATH,
+                RemindersIface {
+                    shared: shared.clone(),
+                },
+            )
+            .await?;
+        server
+            .at(
+                PATH,
+                SummaryIface {
+                    shared: shared.clone(),
+                },
+            )
+            .await?;
+        server
+            .at(PATH, crate::workspace::WorkspaceIface::new())
+            .await?;
         conn.request_name(BUS_NAME).await?;
         tracing::info!("mira-daemon serving {BUS_NAME} at {PATH}");
 
@@ -216,7 +242,23 @@ mod linux {
                 let mut tick = tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tick.tick().await;
-                    let result = shared.pomodoro.lock().await.tick();
+                    let (result, was_work) = {
+                        let mut engine = shared.pomodoro.lock().await;
+                        let before = engine.snapshot();
+                        (
+                            engine.tick(),
+                            before.running && before.phase == mira_core::model::PomodoroPhase::Work,
+                        )
+                    };
+                    if was_work {
+                        if let Err(e) = shared.store.lock().await.record_focus(
+                            dbus::now_epoch(),
+                            1,
+                            matches!(result, mira_core::pomodoro::TickResult::PhaseChanged(_)),
+                        ) {
+                            tracing::warn!("recording focus activity: {e}");
+                        }
+                    }
                     match result {
                         mira_core::pomodoro::TickResult::Idle => {}
                         mira_core::pomodoro::TickResult::Counted => {
@@ -267,8 +309,47 @@ mod linux {
             });
         }
 
+        // Separate reminders keep their due state until acknowledged. The flag
+        // survives daemon restarts; signals are emitted once per due/snooze cycle.
+        {
+            let conn = conn.clone();
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                let Ok(iface) = conn
+                    .object_server()
+                    .interface::<_, RemindersIface>(PATH)
+                    .await
+                else {
+                    return;
+                };
+                let mut tick = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    tick.tick().await;
+                    let store = shared.store.lock().await;
+                    match store.reminders() {
+                        Ok(items) => {
+                            for r in items
+                                .iter()
+                                .filter(|r| !r.notified && r.due_epoch <= dbus::now_epoch())
+                            {
+                                if RemindersIface::due(iface.signal_emitter(), r.id, &r.text)
+                                    .await
+                                    .is_ok()
+                                {
+                                    if let Err(e) = store.mark_reminder_notified(r.id) {
+                                        tracing::warn!("marking reminder delivered: {e}");
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => tracing::warn!("reading reminders: {e}"),
+                    }
+                }
+            });
+        }
+
         // Shut down cleanly on SIGTERM/SIGINT (systemd stop, Ctrl-C).
-        let event_loop = event_loop(conn.clone(), bus.clone(), shared.clone());
+        let event_loop = event_loop(conn.clone(), bus.clone(), shared.clone(), events);
         tokio::select! {
             _ = event_loop => {}
             _ = shutdown_signal() => tracing::info!("shutting down"),
@@ -286,7 +367,12 @@ mod linux {
         }
     }
 
-    async fn event_loop(conn: zbus::Connection, bus: EventBus, shared: Arc<Shared>) {
+    async fn event_loop(
+        conn: zbus::Connection,
+        bus: EventBus,
+        shared: Arc<Shared>,
+        mut rx: tokio::sync::broadcast::Receiver<AppEvent>,
+    ) {
         let server = conn.object_server();
         let media = server.interface::<_, MediaIface>(PATH).await.ok();
         let lyrics = server.interface::<_, LyricsIface>(PATH).await.ok();
@@ -294,9 +380,8 @@ mod linux {
         let system = server.interface::<_, SystemIface>(PATH).await.ok();
 
         let lrclib = LrclibClient::new().ok();
-        let mut last_lyrics_key: Option<(String, String)> = None;
+        let mut last_lyrics_key: Option<TrackKey> = None;
 
-        let mut rx = bus.subscribe();
         loop {
             let ev = match rx.recv().await {
                 Ok(ev) => ev,
@@ -304,17 +389,20 @@ mod linux {
                 Err(_) => break,
             };
 
-            // Fold the event into shared state first.
-            shared.state.lock().await.apply(&ev);
+            if !shared.apply_event(&ev).await {
+                continue;
+            }
 
             match &ev {
                 AppEvent::NowPlaying(np) => {
+                    // Invalidate previous requests before exposing the new track
+                    // over D-Bus, so a manual lookup cannot lose to a late reset.
+                    maybe_fetch_lyrics(np, &bus, &lrclib, &mut last_lyrics_key, &shared).await;
                     if let Some(m) = &media {
                         dbus::emit_media(m).await;
                     }
-                    maybe_fetch_lyrics(np, &bus, &lrclib, &mut last_lyrics_key);
                 }
-                AppEvent::Lyrics(_) => {
+                AppEvent::Lyrics(_) | AppEvent::LyricsResult { .. } => {
                     if let Some(l) = &lyrics {
                         dbus::emit_lyrics_props(l).await;
                         let _ = LyricsIface::lyrics_changed(l.signal_emitter()).await;
@@ -372,26 +460,25 @@ mod linux {
 
     /// Kick off an LRCLIB fetch when the track changes. Results come back as an
     /// `AppEvent::Lyrics` on the bus, keeping the event loop non-blocking.
-    fn maybe_fetch_lyrics(
+    async fn maybe_fetch_lyrics(
         np: &NowPlaying,
         bus: &EventBus,
         lrclib: &Option<LrclibClient>,
-        last_key: &mut Option<(String, String)>,
+        last_key: &mut Option<TrackKey>,
+        shared: &Arc<Shared>,
     ) {
-        let Some(client) = lrclib.clone() else {
-            return;
-        };
-        if !np.has_track() {
-            return;
-        }
-        let key = (np.title.clone(), np.artist.clone());
+        let key = TrackKey::of(np);
         if last_key.as_ref() == Some(&key) {
             return;
         }
         *last_key = Some(key);
-
-        // Browser/YouTube tracks arrive as a messy single title ("Artist - Song
-        // (Official Video)") with no artist. Clean it up so LRCLIB can match.
+        let request_id = shared.begin_lyrics(String::new()).await;
+        let Some(client) = lrclib.clone() else {
+            return;
+        };
+        if !np.has_track() || metadata_hidden(&np.title) {
+            return;
+        }
         let (title, artist) = clean_track(&np.title, &np.artist);
         let query = TrackQuery {
             title,
@@ -402,56 +489,12 @@ mod linux {
         let bus = bus.clone();
         tokio::spawn(async move {
             match client.fetch(&query).await {
-                Ok(lyrics) => bus.publish(AppEvent::Lyrics(lyrics)),
-                Err(_) => bus.publish(AppEvent::Lyrics(Lyrics::default())),
+                Ok(lyrics) => bus.publish(AppEvent::LyricsResult { request_id, lyrics }),
+                Err(_) => bus.publish(AppEvent::LyricsResult {
+                    request_id,
+                    lyrics: Lyrics::default(),
+                }),
             }
         });
-    }
-
-    /// Normalise a now-playing title/artist for lyric lookup. Strips common
-    /// video-title noise and, when the artist is empty, splits an "Artist - Song"
-    /// title (the usual shape for YouTube played through a browser).
-    fn clean_track(raw_title: &str, raw_artist: &str) -> (String, String) {
-        let mut title = strip_noise(raw_title);
-        let mut artist = strip_noise(raw_artist);
-        // Drop a channel "- Topic" suffix that YouTube Music adds to the artist.
-        if let Some(stripped) = artist.strip_suffix("- Topic") {
-            artist = stripped.trim().to_string();
-        }
-        if artist.is_empty() {
-            if let Some((a, t)) = title.split_once(" - ") {
-                artist = a.trim().to_string();
-                title = t.trim().to_string();
-            }
-        }
-        (title, artist)
-    }
-
-    /// Remove bracketed/segment noise such as "(Official Video)", "[Lyrics]",
-    /// "(feat. X)", "| NPR", trailing "- YouTube", and collapse whitespace.
-    fn strip_noise(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        let mut depth_paren = 0i32;
-        let mut depth_brack = 0i32;
-        for ch in s.chars() {
-            match ch {
-                '(' => depth_paren += 1,
-                ')' => depth_paren = (depth_paren - 1).max(0),
-                '[' => depth_brack += 1,
-                ']' => depth_brack = (depth_brack - 1).max(0),
-                _ if depth_paren == 0 && depth_brack == 0 => out.push(ch),
-                _ => {}
-            }
-        }
-        // Cut anything after a pipe (e.g. "Song | Live at ...").
-        if let Some(idx) = out.find('|') {
-            out.truncate(idx);
-        }
-        let out = out
-            .trim()
-            .trim_end_matches("- YouTube")
-            .trim_end_matches("- Topic")
-            .trim();
-        out.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 }

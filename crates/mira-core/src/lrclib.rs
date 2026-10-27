@@ -41,6 +41,12 @@ impl TrackQuery {
 #[serde(rename_all = "camelCase")]
 pub struct LrclibRecord {
     #[serde(default)]
+    pub track_name: String,
+    #[serde(default)]
+    pub artist_name: String,
+    #[serde(default)]
+    pub duration: f64,
+    #[serde(default)]
     pub instrumental: bool,
     #[serde(default)]
     pub plain_lyrics: Option<String>,
@@ -80,7 +86,11 @@ pub struct LrclibClient {
 
 impl LrclibClient {
     pub fn new() -> Result<Self> {
-        let http = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
+        let http = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .timeout(std::time::Duration::from_secs(12))
+            .build()?;
         Ok(LrclibClient {
             http,
             base: API_BASE.to_string(),
@@ -102,6 +112,9 @@ impl LrclibClient {
     }
 
     async fn get(&self, q: &TrackQuery) -> Result<Lyrics> {
+        if q.artist.trim().is_empty() {
+            return Err(Error::LyricsNotFound);
+        }
         let mut params: Vec<(&str, String)> = vec![
             ("track_name", q.title.clone()),
             ("artist_name", q.artist.clone()),
@@ -123,27 +136,82 @@ impl LrclibClient {
     }
 
     async fn search(&self, q: &TrackQuery) -> Result<Lyrics> {
-        let params: Vec<(&str, String)> = vec![
-            ("track_name", q.title.clone()),
-            ("artist_name", q.artist.clone()),
-        ];
+        let mut params: Vec<(&str, String)> = vec![("track_name", q.title.clone())];
+        if !q.artist.trim().is_empty() {
+            params.push(("artist_name", q.artist.clone()));
+        }
         let url = format!("{}/api/search", self.base);
         let resp = self.http.get(&url).query(&params).send().await?;
         if !resp.status().is_success() {
             return Err(Error::LyricsNotFound);
         }
-        let records: Vec<LrclibRecord> = resp.json().await?;
+        let mut records: Vec<LrclibRecord> = resp.json().await?;
+        rank_records(&mut records, q);
         // Take the first record that yields usable lyrics.
         records
             .into_iter()
+            .filter(|r| r.track_name.is_empty() || canonical(&r.track_name) == canonical(&q.title))
             .find_map(|r| r.into_lyrics().ok())
             .ok_or(Error::LyricsNotFound)
     }
 }
 
+fn canonical(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .collect()
+}
+fn rank_records(records: &mut [LrclibRecord], q: &TrackQuery) {
+    records.sort_by_key(|r| {
+        (
+            canonical(&r.track_name) != canonical(&q.title),
+            !q.artist.is_empty() && canonical(&r.artist_name) != canonical(&q.artist),
+            q.duration_secs
+                .map(|d| ((r.duration - d as f64).abs() * 1000.) as i64)
+                .unwrap_or(0),
+            r.synced_lyrics
+                .as_ref()
+                .map(|l| l.trim().is_empty())
+                .unwrap_or(true),
+        )
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_prefers_the_same_song_artist_and_duration() {
+        let mut records: Vec<LrclibRecord> = serde_json::from_str(
+            r#"[
+          {"trackName":"Another song","artistName":"Artist","duration":180},
+          {"trackName":"Song","artistName":"Cover band","duration":180},
+          {"trackName":"Song","artistName":"Artist","duration":300},
+          {"trackName":"Song","artistName":"Artist","duration":180}
+        ]"#,
+        )
+        .unwrap();
+        rank_records(
+            &mut records,
+            &TrackQuery {
+                title: "Song".into(),
+                artist: "Artist".into(),
+                duration_secs: Some(180),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            (
+                records[0].track_name.as_str(),
+                records[0].artist_name.as_str(),
+                records[0].duration
+            ),
+            ("Song", "Artist", 180.)
+        );
+        assert_eq!(canonical("Don't stop!"), canonical("Dont stop"));
+    }
 
     #[test]
     fn maps_synced_record_to_timed_lyrics() {

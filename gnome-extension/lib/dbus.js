@@ -20,6 +20,9 @@ const IFACE = {
     water: 'ro.novabytecode.Mira.Water',
     todo: 'ro.novabytecode.Mira.Todo',
     shelf: 'ro.novabytecode.Mira.Shelf',
+    reminders: 'ro.novabytecode.Mira.Reminders',
+    summary: 'ro.novabytecode.Mira.Summary',
+    workspace: 'ro.novabytecode.Mira.Workspace',
 };
 
 export class MiraClient {
@@ -114,6 +117,7 @@ export class MiraClient {
         this._emit('water-changed');
         this._emit('todo-changed');
         this._emit('shelf-changed');
+        this._emit('reminders-changed');
     }
 
     _watchProps(key, event) {
@@ -163,6 +167,15 @@ export class MiraClient {
             }
         });
 
+        on(this._proxies.reminders, (_p, _sender, signal, params) => {
+            if (signal === 'ItemsChanged')
+                this._emit('reminders-changed');
+            else if (signal === 'Due') {
+                const [id, text] = params.deepUnpack();
+                this._emit('reminder-due', Number(id), text);
+            }
+        });
+
         on(this._proxies.shelf, (_p, _sender, signal, _params) => {
             if (signal === 'ItemsChanged')
                 this._emit('shelf-changed');
@@ -207,6 +220,7 @@ export class MiraClient {
             available: this._get('lyrics', 'Available', false),
             synced: this._get('lyrics', 'Synced', false),
             source: this._get('lyrics', 'Source', 'none'),
+            manualQuery: this._get('lyrics', 'ManualQuery', ''),
         };
     }
 
@@ -237,6 +251,42 @@ export class MiraClient {
             ]);
             cb(items);
         }, () => cb([]));
+    }
+
+    getReminders(onOk, onErr = () => {}) {
+        this._callRet('reminders', 'GetDetails', null, ret => {
+            const items = JSON.parse(ret.deepUnpack()[0]);
+            onOk(items.map(r => ({...r, due: Number(r.due_epoch), created: Number(r.created_epoch)})));
+        }, onErr);
+    }
+    previewNatural(input, onOk, onErr) {
+        this._callRet('reminders', 'PreviewNatural', new GLib.Variant('(s)', [input]), ret => onOk(JSON.parse(ret.deepUnpack()[0])), onErr);
+    }
+    reminderAddNatural(input, onOk, onErr) {
+        this._callRet('reminders', 'AddNatural', new GLib.Variant('(s)', [input]), onOk, onErr);
+    }
+    reminderComplete(id, due, onOk, onErr) {
+        this._callRet('reminders', 'CompleteOccurrence', new GLib.Variant('(xx)', [id, due]), onOk, onErr);
+    }
+    getSummary(onOk, onErr = () => {}) {
+        this._callRet('summary', 'GetToday', null, ret => onOk(JSON.parse(ret.deepUnpack()[0])), onErr);
+    }
+
+    reminderAdd(text, due, onOk, onErr) {
+        this._callRet('reminders', 'Add', new GLib.Variant('(sx)', [text, due]), onOk, onErr);
+    }
+    reminderRemove(id, onOk, onErr) {
+        this._callRet('reminders', 'Remove', new GLib.Variant('(x)', [id]), onOk, onErr);
+    }
+    reminderSnooze(id, onOk, onErr) {
+        this._callRet('reminders', 'Snooze', new GLib.Variant('(xx)', [id, Math.floor(Date.now() / 1000) + 300]), onOk, onErr);
+    }
+
+    workspace(method, args, cb = () => {}) {
+        const types = {PhoneSetShake:'(ss)',PhoneAddAction:'(ss)',PhoneRemoveAction:'(s)',AddPaths: '(as)', Note: '(s)', PushClip: '(s)', Capture: '(b)', Remove: '(s)', Search: '(s)'};
+        this._callRet('workspace', method, types[method] ? new GLib.Variant(types[method], args) : null,
+            ret => {try {cb(ret.n_children() ? JSON.parse(ret.deepUnpack()[0]) : {});} catch {cb({});}},
+            e => cb({error: String(e)}));
     }
 
     // Fetch shelf items asynchronously; cb receives [[id, path, epoch], ...].
@@ -340,6 +390,11 @@ export class MiraClient {
     }
     shelfRemove(id) {
         this._call('shelf', 'Remove', new GLib.Variant('(x)', [id]));
+    }
+
+    lookupLyrics(title, artist, onOk, onErr) {
+        this._callRet('lyrics', 'Lookup', new GLib.Variant('(ss)', [title, artist]),
+            ret => onOk(Boolean(ret.deepUnpack()[0])), onErr);
     }
 
     playPause() {

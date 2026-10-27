@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 mira-core = { path = "../mira-core" }
 tracing = "0.1"
+serde_json = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 mira-platform-linux = { path = "../mira-platform-linux" }
@@ -22,3 +23,6 @@ tokio = { version = "1", default-features = false, features = ["rt", "macros", "
 zbus = { version = "6", default-features = false, features = ["tokio", "proxy", "service", "object-manager"] }
 futures-util = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+
+[dev-dependencies]
+async-trait = { workspace = true }

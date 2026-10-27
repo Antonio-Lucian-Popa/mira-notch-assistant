@@ -16,9 +16,30 @@ export default class MiraExtension extends Extension {
     enable() {
         this._settings = this.getSettings();
         this._tokens = loadTokens(this.path);
+        // Restore the Ubuntu panel home once for existing companion installs.
+        // Later explicit movement choices remain available in the context menu.
+        if (this._settings.get_int('panel-layout-version') < 1) {
+            this._settings.set_string('mode', 'integrated');
+            this._settings.set_string('desktop-motion', 'docked');
+        }
 
+        if (this._settings.get_int('panel-layout-version') < 2) {
+            if (this._settings.get_int('workspace-width') === 640 &&
+                this._settings.get_int('workspace-height') === 420) {
+                this._settings.set_int('workspace-width', 520);
+                this._settings.set_int('workspace-height', 300);
+            }
+            this._settings.set_int('panel-layout-version', 2);
+        }
+
+        if (this._settings.get_int('panel-layout-version') < 3) {
+            if (this._settings.get_int('workspace-height') === 300)
+                this._settings.set_int('workspace-height', 340);
+            this._settings.set_int('panel-layout-version', 3);
+        }
         this._client = new MiraClient();
         this._notch = new Notch(this._client, this._tokens, this._settings, {
+            extensionPath: this.path,
             openPrefs: () => {
                 try {
                     this.openPreferences();
@@ -40,8 +61,14 @@ export default class MiraExtension extends Extension {
         console.log('[mira] extension enabled — always-on eyes + glance build');
 
         this._settingsChangedId = this._settings.connect('changed', (_s, key) => {
-            if (key === 'mode')
+            if (key === 'mode' || key === 'desktop-motion')
                 this._applyMode();
+            else if (key === 'routine-delivered')
+                return;
+            else if (key === 'mascot-preview')
+                this._notch.previewMascot(this._settings.get_string('mascot-preview').split(':')[0]);
+            else if (key === 'routine-preview')
+                this._notch.showRoutine(this._settings.get_string('routine-preview').split(':')[0]);
             else if (key === 'greeting-preview')
                 this._notch.showGreeting(false);
             else if (key === 'greeting-preview-birthday')
@@ -51,6 +78,17 @@ export default class MiraExtension extends Extension {
         });
 
         this._client.start();
+        this._sessionChangedId = Main.sessionMode.connect('updated', () => this._syncSession());
+        this._syncSession();
+    }
+
+    _syncSession() {
+        if (!this._notch) return;
+        this._notch.visible = !Main.sessionMode.isLocked;
+        if (Main.sessionMode.isLocked) {
+            this._notch.close();
+            this._notch._desktop?.menu.close();
+        }
     }
 
     _wireClient() {
@@ -60,17 +98,20 @@ export default class MiraExtension extends Extension {
         this._client.connect('lyrics-props-changed', () => this._notch.onLyricsChanged());
         this._client.connect('active-line-changed', idx => this._notch.onActiveLine(idx));
         this._client.connect('alert', (type, arg) => this._notch.showAlert(type, arg));
-        this._client.connect('availability-changed', () => this._notch.refreshMedia());
+        this._client.connect('availability-changed', () => { this._notch.refreshMedia(); this._notch.refreshReminders(); });
         this._client.connect('pomodoro-changed', () => this._notch.refreshPomodoro());
         this._client.connect('water-changed', () => this._notch.refreshWater());
         this._client.connect('todo-changed', () => this._notch.refreshTodo());
         this._client.connect('shelf-changed', () => this._notch.refreshShelf());
+        this._client.connect('reminders-changed', () => this._notch.refreshReminders());
+        this._client.connect('reminder-due', (id, text) => this._notch.onReminderDue(id, text));
     }
 
     // Integrated mode hides the panel clock so the notch "replaces" it; floating
     // leaves the panel untouched. Both render the same centered pill.
     _applyMode() {
-        const integrated = this._settings.get_string('mode') === 'integrated';
+        const integrated = this._settings.get_string('mode') === 'integrated' &&
+            this._settings.get_string('desktop-motion') === 'docked';
         const dateMenu = Main.panel?.statusArea?.dateMenu;
         if (dateMenu) {
             if (integrated && this._dateMenuWasVisible === undefined) {
@@ -86,6 +127,10 @@ export default class MiraExtension extends Extension {
     }
 
     disable() {
+        if (this._sessionChangedId) {
+            Main.sessionMode.disconnect(this._sessionChangedId);
+            this._sessionChangedId = 0;
+        }
         if (this._settingsChangedId) {
             this._settings.disconnect(this._settingsChangedId);
             this._settingsChangedId = 0;

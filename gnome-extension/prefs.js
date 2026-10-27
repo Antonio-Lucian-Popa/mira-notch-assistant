@@ -8,6 +8,9 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
+import {validTime} from './lib/routines.js';
+import {THEMES, EXPRESSIONS} from './lib/mascot.js';
+
 const BUS_NAME = 'ro.novabytecode.Mira';
 const OBJECT_PATH = '/ro/novabytecode/Mira';
 const SERVICE_IFACE = 'ro.novabytecode.Mira.Service';
@@ -92,6 +95,153 @@ export default class MiraPreferences extends ExtensionPreferences {
         eyeRow.connect('notify::selected', row => settings.set_string('eye-style', eyeMap[row.selected]));
         group.add(eyeRow);
 
+        // --- Dynamic look & feel ("șmecher") ---
+        const flashGroup = new Adw.PreferencesGroup({
+            title: _('Aspect dinamic'),
+            description: _('Temă de culoare, halou din coperta melodiei, mascota pe ritm și gesturi.'),
+        });
+        page.add(flashGroup);
+
+        const themeKeys = ['default', 'midnight', 'neon', 'nord', 'dracula', 'sunset'];
+        const themeLabels = [_('Implicit'), 'Midnight', 'Neon', 'Nord', 'Dracula', 'Sunset'];
+        const ctRow = new Adw.ComboRow({
+            title: _('Temă de culoare'),
+            subtitle: _('Recolorează inelul, vizualizatorul, pastilele și haloul'),
+            model: new Gtk.StringList({strings: themeLabels}),
+        });
+        ctRow.selected = Math.max(0, themeKeys.indexOf(settings.get_string('color-theme')));
+        ctRow.connect('notify::selected', row => settings.set_string('color-theme', themeKeys[row.selected]));
+        flashGroup.add(ctRow);
+
+        const glowRow = new Adw.SwitchRow({
+            title: _('Halou din coperta melodiei'),
+            subtitle: _('Notch-ul și bara de progres preiau culoarea dominantă a coperții'),
+        });
+        settings.bind('album-glow', glowRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        flashGroup.add(glowRow);
+
+        const grooveRow = new Adw.SwitchRow({
+            title: _('Mascota dansează pe ritm'),
+            subtitle: _('Ochii pulsează ușor în ritmul muzicii'),
+        });
+        settings.bind('mascot-groove', grooveRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        flashGroup.add(grooveRow);
+
+        const skipRow = new Adw.SwitchRow({
+            title: _('Scroll pe notch = schimbă piesa'),
+            subtitle: _('Când cântă muzica, scroll peste notch-ul închis sare la piesa următoare/anterioară'),
+        });
+        settings.bind('scroll-skip', skipRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        flashGroup.add(skipRow);
+
+        const hiddenRow = new Adw.EntryRow({
+            title: _('Pagini ascunse (separate prin virgulă)'),
+        });
+        hiddenRow.text = settings.get_string('hidden-pages');
+        hiddenRow.connect('changed', row => settings.set_string('hidden-pages', row.text.trim()));
+        flashGroup.add(hiddenRow);
+
+        // --- Weather peek ---
+        const weatherGroup = new Adw.PreferencesGroup({
+            title: _('Vremea (pe pagina Rezumat)'),
+            description: _('Date din serviciul gratuit open-meteo, fără cont sau cheie. Introdu coordonatele locului tău.'),
+        });
+        page.add(weatherGroup);
+        const weatherOn = new Adw.SwitchRow({title: _('Arată vremea')});
+        settings.bind('weather-enabled', weatherOn, 'active', Gio.SettingsBindFlags.DEFAULT);
+        weatherGroup.add(weatherOn);
+        const placeRow = new Adw.EntryRow({title: _('Nume loc')});
+        placeRow.text = settings.get_string('weather-place');
+        placeRow.connect('changed', row => settings.set_string('weather-place', row.text));
+        weatherGroup.add(placeRow);
+        const latRow = new Adw.SpinRow({
+            title: _('Latitudine'),
+            adjustment: new Gtk.Adjustment({lower: -90, upper: 90, step_increment: 0.01, page_increment: 1}),
+            digits: 2,
+        });
+        settings.bind('weather-lat', latRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        weatherGroup.add(latRow);
+        const lonRow = new Adw.SpinRow({
+            title: _('Longitudine'),
+            adjustment: new Gtk.Adjustment({lower: -180, upper: 180, step_increment: 0.01, page_increment: 1}),
+            digits: 2,
+        });
+        settings.bind('weather-lon', lonRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        weatherGroup.add(lonRow);
+
+        const routineGroup = new Adw.PreferencesGroup({title: _('Prânz și sfârșitul programului'), description: _('Ore locale, cu mesaje animate. Păstrează ultimele notificări chiar și după reconectare.')});
+        page.add(routineGroup);
+        for (const [key, title] of [['lunch-enabled', 'Anunță-mă la prânz'], ['work-end-enabled', 'Salută-mă la finalul programului'], ['routine-weekdays-only', 'Doar luni–vineri']]) {
+            const row = new Adw.SwitchRow({title});
+            settings.bind(key, row, 'active', Gio.SettingsBindFlags.DEFAULT);
+            routineGroup.add(row);
+        }
+        for (const [key, title] of [['lunch-time', 'Ora prânzului (HH:MM)'], ['work-end-time', 'Termin munca la (HH:MM)']]) {
+            const row = new Adw.EntryRow({title});
+            row.text = settings.get_string(key);
+            row.connect('changed', entry => {
+                const valid = validTime(entry.text);
+                entry[valid ? 'remove_css_class' : 'add_css_class']('error');
+                if (valid) settings.set_string(key, valid);
+            });
+            routineGroup.add(row);
+        }
+        const lead = new Adw.SpinRow({title: _('Anunță-mă cu câte minute înainte de final'), adjustment: new Gtk.Adjustment({lower: 0, upper: 60, step_increment: 1}), digits: 0});
+        settings.bind('work-end-lead-minutes', lead, 'value', Gio.SettingsBindFlags.DEFAULT);
+        routineGroup.add(lead);
+        const previews = new Adw.ActionRow({title: _('Previzualizează animațiile')});
+        for (const [type, label] of [['lunch', 'Prânz 🍽'], ['work-soon', 'În curând'], ['work-end', 'La revedere 👋']]) {
+            const button = new Gtk.Button({label, valign: Gtk.Align.CENTER});
+            button.connect('clicked', () => settings.set_string('routine-preview', `${type}:${Date.now()}`));
+            previews.add_suffix(button);
+        }
+        routineGroup.add(previews);
+
+        const browserGroup = new Adw.PreferencesGroup({title: _('Muzică din browser'), description: _('Mira urmărește toate playerele MPRIS, inclusiv Brave, Chrome și Firefox.')});
+        browserGroup.add(new Adw.ActionRow({title: _('Sesiuni private / Incognito'), subtitle: _('Browserul poate ascunde titlul și artistul. În pagina Lyrics poți introduce manual melodia pentru căutare pe LRCLIB.')}));
+        page.add(browserGroup);
+
+        const summaryGroup = new Adw.PreferencesGroup({title: _('Rezumatul zilei'), description: _('Doar activitatea înregistrată de Mira: focus, sarcini, remindere și apă. Fără scoruri sau comparații.')});
+        page.add(summaryGroup);
+        const summaryOn = new Adw.SwitchRow({title: _('Arată rezumatul zilnic')});
+        settings.bind('daily-summary-enabled', summaryOn, 'active', Gio.SettingsBindFlags.DEFAULT);
+        summaryGroup.add(summaryOn);
+        const summaryTime = new Adw.EntryRow({title: _('Ora rezumatului (HH:MM)')});
+        summaryTime.text = settings.get_string('daily-summary-time');
+        summaryTime.connect('changed', row => {
+            const time = validTime(row.text);
+            row[time ? 'remove_css_class' : 'add_css_class']('error');
+            if (time) settings.set_string('daily-summary-time', time);
+        });
+        summaryGroup.add(summaryTime);
+        const summaryPreview = new Adw.ActionRow({title: _('Vezi rezumatul acum')});
+        const summaryButton = new Gtk.Button({label: _('Previzualizează'), valign: Gtk.Align.CENTER});
+        summaryButton.connect('clicked', () => settings.set_string('routine-preview', `summary:${Date.now()}`));
+        summaryPreview.add_suffix(summaryButton); summaryGroup.add(summaryPreview);
+
+        const studio = new Adw.PreferencesPage({title: _('Studio mascotă'), icon_name: 'applications-graphics-symbolic'});
+        window.add(studio);
+        const appearance = new Adw.PreferencesGroup({title: _('Teme și comportament'), description: _('Previzualizările rulează în notch, fără să modifice muzica sau timerul. Schimbările de temă și intensitate se salvează automat.')});
+        studio.add(appearance);
+        const themeNames = Object.keys(THEMES);
+        const themeRow = new Adw.ComboRow({title: _('Tema mascotei'), model: new Gtk.StringList({strings: themeNames.map(name => THEMES[name].label)})});
+        themeRow.selected = Math.max(0, themeNames.indexOf(settings.get_string('mascot-theme')));
+        themeRow.connect('notify::selected', row => settings.set_string('mascot-theme', themeNames[row.selected]));
+        appearance.add(themeRow);
+        const contextual = new Adw.SwitchRow({title: _('Personalitate contextuală'), subtitle: _('Muzică → ritm discret; focus → concentrare; seara → somnolență. Reminderele urgente au prioritate.')});
+        settings.bind('mascot-contextual', contextual, 'active', Gio.SettingsBindFlags.DEFAULT); appearance.add(contextual);
+        const motion = new Adw.SpinRow({title: _('Intensitatea animațiilor'), subtitle: _('0 = expresii statice, 1 = mișcare completă'), adjustment: new Gtk.Adjustment({lower: 0, upper: 1, step_increment: 0.1}), digits: 1});
+        settings.bind('motion-intensity', motion, 'value', Gio.SettingsBindFlags.DEFAULT); appearance.add(motion);
+        const examples = new Adw.PreferencesGroup({title: _('Biblioteca de expresii'), description: _('Alege o expresie și privește notch-ul. La intensitate zero, mișcările sunt dezactivate.')});
+        studio.add(examples);
+        const grid = new Gtk.Grid({column_spacing: 8, row_spacing: 8, column_homogeneous: true});
+        [...EXPRESSIONS, 'music', 'focus', 'evening', 'reminder'].forEach((name,index) => {
+            const button = new Gtk.Button({label: name});
+            button.connect('clicked', () => settings.set_string('mascot-preview', `${name}:${Date.now()}`));
+            grid.attach(button,index % 3,Math.floor(index / 3),1,1);
+        });
+        examples.add(grid);
+
         // --- Greeting ---
         const greetGroup = new Adw.PreferencesGroup({
             title: _('Daily greeting'),
@@ -114,8 +264,9 @@ export default class MiraPreferences extends ExtensionPreferences {
         timeRow.text = settings.get_string('greeting-time');
         timeRow.connect('changed', row => {
             const t = row.text.trim();
-            if (/^\d{1,2}:\d{2}$/.test(t))
-                settings.set_string('greeting-time', t);
+            const valid = validTime(t);
+            if (valid) settings.set_string('greeting-time', valid);
+            row[valid ? 'remove_css_class' : 'add_css_class']('error');
         });
         greetGroup.add(timeRow);
 

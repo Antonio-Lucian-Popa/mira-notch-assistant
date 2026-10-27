@@ -94,50 +94,58 @@ impl Source for MprisSource {
         let dbus = zbus::fdo::DBusProxy::new(&self.conn)
             .await
             .map_err(zbus_err)?;
-
+        // Subscribe before taking the snapshot. Watch *all* players, including
+        // existing idle browsers that start playing without acquiring a name.
+        let mut owners = dbus.receive_name_owner_changed().await.map_err(zbus_err)?;
+        let rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .path("/org/mpris/MediaPlayer2")
+            .build()
+            .map_err(zbus_err)?;
+        let mut changes = zbus::MessageStream::for_match_rule(rule, &self.conn, None)
+            .await
+            .map_err(zbus_err)?;
+        let mut preferred_sender: Option<String> = None;
         loop {
-            let name = match pick_player(&self.conn).await {
-                Some(n) => n,
-                None => {
-                    // No player: show "nothing playing" and wait for one.
-                    *self.current.lock().await = None;
-                    bus.publish(AppEvent::NowPlaying(NowPlaying::default()));
-                    wait_for_mpris_name(&dbus).await?;
-                    continue;
-                }
+            let previous = self.current.lock().await.clone();
+            let name =
+                pick_player(&self.conn, previous.as_deref(), preferred_sender.as_deref()).await;
+            *self.current.lock().await = name.clone();
+            let snapshot = match name {
+                Some(ref name) => match build_player(&self.conn, name).await {
+                    Ok(proxy) => read_now_playing(&proxy, name).await,
+                    Err(e) => {
+                        tracing::debug!("player disappeared: {e}");
+                        NowPlaying::default()
+                    }
+                },
+                None => NowPlaying::default(),
             };
-            *self.current.lock().await = Some(name.clone());
-
-            let proxy = build_player(&self.conn, &name).await?;
-            bus.publish(AppEvent::NowPlaying(read_now_playing(&proxy, &name).await));
-
-            // Subscribe to everything that can change this player's state.
-            let mut status = proxy.receive_playback_status_changed().await;
-            let mut metadata = proxy.receive_metadata_changed().await;
-            let mut position = proxy.receive_position_changed().await;
-            let mut seeked = proxy.receive_seeked().await.map_err(zbus_err)?;
-            let mut owners = dbus.receive_name_owner_changed().await.map_err(zbus_err)?;
-
+            bus.publish(AppEvent::NowPlaying(snapshot));
+            preferred_sender = None;
             loop {
                 tokio::select! {
-                    Some(_) = status.next() => republish(&proxy, &name, &bus).await,
-                    Some(_) = metadata.next() => republish(&proxy, &name, &bus).await,
-                    Some(_) = position.next() => republish(&proxy, &name, &bus).await,
-                    Some(_) = seeked.next() => republish(&proxy, &name, &bus).await,
-                    Some(sig) = owners.next() => {
-                        if let Ok(args) = sig.args() {
-                            let changed = args.name().as_str().to_string();
-                            let has_new = !args.new_owner().is_none();
-                            // Our player vanished, or a different player showed
-                            // up — re-evaluate who is active.
-                            if (changed == name && !has_new)
-                                || (changed.starts_with(MPRIS_PREFIX) && has_new && changed != name)
-                            {
+                    message = changes.next() => {
+                        let Some(message) = message else { return Err(Error::other("MPRIS signal stream ended")); };
+                        let message = message.map_err(zbus_err)?;
+                        let header = message.header();
+                        let interface = header.interface().map(|n| n.as_str()).unwrap_or("");
+                        let member = header.member().map(|n| n.as_str()).unwrap_or("");
+                        if interface == "org.freedesktop.DBus.Properties" && member == "PropertiesChanged" {
+                            if let Ok((iface, changed, invalidated)) = message.body().deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>() {
+                                if iface != "org.mpris.MediaPlayer2.Player" { continue; }
+                                if changed.contains_key("PlaybackStatus") || changed.contains_key("Metadata")
+                                    || invalidated.iter().any(|p| p == "PlaybackStatus" || p == "Metadata") {
+                                    preferred_sender = header.sender().map(|n| n.to_string());
+                                }
                                 break;
                             }
-                        }
+                        } else if interface == "org.mpris.MediaPlayer2.Player" && member == "Seeked" { break; }
                     }
-                    else => break,
+                    signal = owners.next() => {
+                        let Some(signal) = signal else { return Err(Error::other("D-Bus name-owner stream ended")); };
+                        if signal.args().is_ok_and(|args| args.name().as_str().starts_with(MPRIS_PREFIX)) { break; }
+                    }
                 }
             }
         }
@@ -207,13 +215,10 @@ impl MprisControl {
 async fn build_player(conn: &Connection, name: &str) -> Result<PlayerProxy<'static>> {
     PlayerProxy::builder(conn)
         .destination(name.to_string())
+        .cache_properties(zbus::proxy::CacheProperties::No)
         .build()
         .await
         .map_err(zbus_err)
-}
-
-async fn republish(proxy: &PlayerProxy<'_>, name: &str, bus: &EventBus) {
-    bus.publish(AppEvent::NowPlaying(read_now_playing(proxy, name).await));
 }
 
 async fn read_now_playing(proxy: &PlayerProxy<'_>, player_id: &str) -> NowPlaying {
@@ -247,37 +252,62 @@ async fn read_now_playing(proxy: &PlayerProxy<'_>, player_id: &str) -> NowPlayin
     }
 }
 
-/// Pick the active MPRIS player: a playing one if any, else the first found.
-async fn pick_player(conn: &Connection) -> Option<String> {
+/// Rank playback before metadata; an incognito player must not leave an old
+/// public track on screen. Prefer the most recently changed playing session.
+async fn pick_player(
+    conn: &Connection,
+    current: Option<&str>,
+    sender: Option<&str>,
+) -> Option<String> {
     let dbus = zbus::fdo::DBusProxy::new(conn).await.ok()?;
-    let names = dbus.list_names().await.ok()?;
-    let mpris: Vec<String> = names
+    let mut names: Vec<String> = dbus
+        .list_names()
+        .await
+        .ok()?
         .into_iter()
-        .map(|n| n.as_str().to_string())
+        .map(|n| n.to_string())
         .filter(|n| n.starts_with(MPRIS_PREFIX))
         .collect();
-
-    for n in &mpris {
-        if let Ok(p) = build_player(conn, n).await {
-            if p.playback_status().await.as_deref() == Ok("Playing") {
-                return Some(n.clone());
+    names.sort();
+    let mut best = None;
+    let mut best_score = (0u8, false, false, false);
+    for name in names {
+        let Ok(proxy) = build_player(conn, &name).await else {
+            continue;
+        };
+        let Ok(status) = proxy.playback_status().await else {
+            continue;
+        };
+        let metadata = proxy.metadata().await.unwrap_or_default();
+        let playing = match status.as_str() {
+            "Playing" => 3,
+            "Paused" => 2,
+            _ => 1,
+        };
+        let owner_matches = if let Some(sender) = sender {
+            match zbus::names::BusName::try_from(name.as_str()) {
+                Ok(bus_name) => dbus
+                    .get_name_owner(bus_name)
+                    .await
+                    .is_ok_and(|owner| owner.as_str() == sender),
+                Err(_) => false,
             }
+        } else {
+            false
+        };
+        let has_title = md_string(&metadata, "xesam:title").is_some_and(|t| !t.trim().is_empty());
+        let score = (
+            playing,
+            owner_matches,
+            has_title,
+            current == Some(name.as_str()),
+        );
+        if best.is_none() || score > best_score {
+            best = Some(name);
+            best_score = score;
         }
     }
-    mpris.into_iter().next()
-}
-
-/// Block until an MPRIS player appears on the bus.
-async fn wait_for_mpris_name(dbus: &zbus::fdo::DBusProxy<'_>) -> Result<()> {
-    let mut owners = dbus.receive_name_owner_changed().await.map_err(zbus_err)?;
-    while let Some(sig) = owners.next().await {
-        if let Ok(args) = sig.args() {
-            if args.name().as_str().starts_with(MPRIS_PREFIX) && !args.new_owner().is_none() {
-                return Ok(());
-            }
-        }
-    }
-    Err(Error::other("D-Bus name-owner stream ended"))
+    best
 }
 
 // --- zvariant metadata helpers ---
