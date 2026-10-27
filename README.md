@@ -220,15 +220,15 @@ The toolbar includes **Telefon** for pairing, receiving transcripts and register
 1. On the PC, open **Telefon** and **Pornește primirea**. The receiver is off by
    default and stops when the GNOME extension / Windows application closes.
 2. On Android, open **Voce & PC**, scan the desktop QR live or paste its pairing
-   code, then select **Asociază PC-ul**. Pairing authorizes PDF uploads **and** the
+   code, then select **Conectează**. Pairing authorizes PDF uploads **and** the
    locally registered keyboard actions. Keep the pairing code private; **Revocă
    asocierea** on the PC rotates its identity and invalidates old pairings.
-3. Enable voice explicitly with microphone permission. **Ascultă Mira** opens a
-   60-second wake/command session; say `Mira` / `Hey Mira`, then `pornește transcrierea`.
-   There is also a direct transcription button. `Mira gata` ends dictation and is
-   removed, including across recognition chunks. A Stop button and microphone
-   notification work without recognizing a spoken command. Dictation is bounded
-   to 30 minutes and preserves confirmed text on errors.
+3. Download the free local Whisper model once in **Voce & PC** (about 148 MB),
+   then enable **Activare vocală Mira** and allow microphone access. Say `Mira`,
+   then `pornește transcrierea`. Recognition and manual dictation run locally,
+   independently of Google/Samsung speech engines, with no paid API or account.
+   `Mira gata` saves the transcript and returns to wake listening. Disable from
+   the switch or ongoing notification. Dictation is limited to 30 minutes.
 4. Completed text stays on the phone, with a paginated A4 PDF export. The unchanged
    PDF is generated on the **phone**, then delivered to `Documents/Mira/Transcrieri`
    on the PC alongside UTF-8 text. This is typography, not an AI summary. Android
@@ -250,14 +250,16 @@ cutout, with horizontal/vertical calibration and a normal-capsule fallback. The
 physical lens has no drawable pixels, and protected system surfaces may hide the
 app's overlay. This was tested with an emulated punch-hole, **not a Galaxy S26**.
 
-**Voice limits:** Android `SpeechRecognizer` is provider-dependent and is not an
-always-on hotword engine. This preview does not offer 24/7 activation with a locked
-screen. A foreground microphone session is always user-started; it never restarts
-at boot. Romanian recognition may require the provider's language pack / network.
-Recognition can pause or fail between phrases; errors retain confirmed text. Raw
-microphone recordings are not stored by Mira. Provider processing may be local or
-remote, according to Android/provider settings. Commands are deterministic; there
-is no bundled chatbot and no ChatGPT/Claude API call or AI API bill.
+**Voice limits:** local Whisper processes speech segments after a short pause;
+this is not a low-power hardware hotword detector. Accuracy, latency, CPU/memory
+and battery use depend on the device and environment. Android can interrupt the
+foreground service; locked-screen/24-hour operation is not guaranteed. Raw audio
+stays in bounded memory buffers and is never uploaded or archived. Opted-in
+listening resumes on opening the app, never at boot. Commands use a fixed
+whitelist. See [mobile/LOCAL_VOICE.md](mobile/LOCAL_VOICE.md) for MIT attribution,
+model integrity, privacy, build and test details.
+
+
 
 Transport uses a pinned self-signed TLS identity and a high-entropy pairing token,
 not a shared six-digit password or a trust-all HTTPS connection. Certificates and

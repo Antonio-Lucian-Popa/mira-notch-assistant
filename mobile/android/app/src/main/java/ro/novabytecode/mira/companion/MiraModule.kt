@@ -10,7 +10,18 @@ import com.facebook.react.ReactPackage
 import com.facebook.react.uimanager.ViewManager
 import org.json.JSONObject
 
-class MiraModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
+class MiraModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context), LifecycleEventListener {
+    init { context.addLifecycleEventListener(this) }
+    override fun onHostResume() {
+        if (context.getSharedPreferences("mira.voice", 0).getBoolean("enabled", false) &&
+            !MiraVoiceService.snapshot().optBoolean("active") &&
+            context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            try { context.startForegroundService(Intent(context, MiraVoiceService::class.java).putExtra("continuous", true)) }
+            catch (_: Exception) { /* Android can reject microphone startup; leave the switch available for retry. */ }
+        }
+    }
+    override fun onHostPause() {}
+    override fun onHostDestroy() {}
     private val scanner=PairingScanner(context)
     private val io=java.util.concurrent.Executors.newSingleThreadExecutor()
     private fun background(promise:Promise,task:()->String){io.execute{result(promise,task)}}
@@ -20,6 +31,8 @@ class MiraModule(private val context: ReactApplicationContext) : ReactContextBas
         MiraStore(context).snapshot().put("overlayGranted", Settings.canDrawOverlays(context))
             .put("overlayRunning", MiraOverlayService.running())
             .put("shakeEnabled", context.getSharedPreferences("mira.shake", android.content.Context.MODE_PRIVATE).getBoolean("enabled", false))
+            .put("voiceModel",LocalVoiceModel.snapshot(context))
+            .put("voiceEnabled",context.getSharedPreferences("mira.voice", 0).getBoolean("enabled", false))
             .put("voice",MiraVoiceService.snapshot()).put("transcripts",TranscriptStore(context).list()).put("peer",TranscriptSync.status(context))
             .put("notificationsGranted", context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()).toString()
     }
@@ -36,15 +49,27 @@ class MiraModule(private val context: ReactApplicationContext) : ReactContextBas
         s.toString()
     }
     @ReactMethod fun scanPairing(promise:Promise){UiThreadUtil.runOnUiThread{scanner.scan(promise)}}
+    @ReactMethod fun voiceModelDownload(promise:Promise)=result(promise){LocalVoiceModel.download(context);"{}"}
+    @ReactMethod fun voiceAuto(enabled:Boolean,promise:Promise)=result(promise){
+        require(context.lifecycleState==com.facebook.react.common.LifecycleState.RESUMED){"Deschide aplicația pentru a activa vocea."}
+        if(enabled){
+            require(context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)==android.content.pm.PackageManager.PERMISSION_GRANTED){"Permite accesul la microfon."}
+            require(LocalVoiceModel.ready(context)){"Descarcă mai întâi modelul vocal gratuit din Voce & PC."}
+        }
+        context.getSharedPreferences("mira.voice",0).edit().putBoolean("enabled",enabled).apply()
+        if(enabled) context.startForegroundService(Intent(context,MiraVoiceService::class.java).putExtra("continuous",true))
+        else MiraVoiceService.stopNow()
+        "{}"
+    }
     @ReactMethod fun voiceStart(dictate:Boolean,promise:Promise)=result(promise){
         require(context.lifecycleState==com.facebook.react.common.LifecycleState.RESUMED){"Pornește vocea din aplicația deschisă."}
         require(context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)==android.content.pm.PackageManager.PERMISSION_GRANTED){"Permite accesul la microfon."}
-        require(android.speech.SpeechRecognizer.isRecognitionAvailable(context)){"Instalează/activează un serviciu de recunoaștere vocală Android."}
+        require(LocalVoiceModel.ready(context)){"Descarcă mai întâi modelul vocal gratuit din Voce & PC."}
         val intent=Intent(context,MiraVoiceService::class.java).putExtra("dictate",dictate)
         if(Build.VERSION.SDK_INT>=26)context.startForegroundService(intent)else context.startService(intent)
         "{}"
     }
-    @ReactMethod fun voiceStop(promise:Promise)=result(promise){MiraVoiceService.stopNow();"{}"}
+    @ReactMethod fun voiceStop(promise:Promise)=result(promise){context.getSharedPreferences("mira.voice",0).edit().putBoolean("enabled",false).apply();MiraVoiceService.stopNow();"{}"}
     @ReactMethod fun transcript(id:String,promise:Promise)=background(promise){TranscriptStore(context).get(id).toString()}
     @ReactMethod fun deleteTranscript(id:String,promise:Promise)=background(promise){require(MiraVoiceService.snapshot().optString("transcriptId")!=id||!MiraVoiceService.snapshot().optBoolean("active")){"Oprește mai întâi transcrierea."};TranscriptStore(context).delete(id);"{}"}
     @ReactMethod fun sharePdf(id:String,promise:Promise)=background(promise){

@@ -7,11 +7,13 @@ export function Eyes({
   urgent = false,
   motion = true,
   expression = 'happy',
+  compact = false,
 }: {
   theme: Theme;
   urgent?: boolean;
   motion?: boolean;
   expression?: string;
+  compact?: boolean;
 }) {
   const blink = useRef(new Animated.Value(1)).current;
   const jitter = useRef(new Animated.Value(0)).current;
@@ -86,7 +88,7 @@ export function Eyes({
         urgent ? ', reminder apropiat' : ''
       }`}
       {...pan.panHandlers}
-      style={s.hit}
+      style={[s.hit, compact && s.compact]}
     >
       <Animated.View
         style={[
@@ -129,6 +131,7 @@ export function Eyes({
   );
 }
 const s = StyleSheet.create({
+  compact: { height: 64 },
   hit: { height: 106, justifyContent: 'center', alignItems: 'center' },
   pair: { flexDirection: 'row', gap: 30 },
   eye: { width: 22, overflow: 'hidden', alignItems: 'center' },

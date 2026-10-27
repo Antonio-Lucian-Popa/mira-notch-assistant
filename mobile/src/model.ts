@@ -21,6 +21,14 @@ export type Snapshot = {
   cameraMode?: boolean;
   cameraX?: number;
   cameraY?: number;
+  voiceModel?: {
+    ready: boolean;
+    downloading: boolean;
+    progress: number;
+    bytes: number;
+    message: string;
+  };
+  voiceEnabled?: boolean;
   voice?: {
     active: boolean;
     state: string;
