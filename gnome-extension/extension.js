@@ -16,7 +16,27 @@ export default class MiraExtension extends Extension {
     enable() {
         this._settings = this.getSettings();
         this._tokens = loadTokens(this.path);
+        // Restore the Ubuntu panel home once for existing companion installs.
+        // Later explicit movement choices remain available in the context menu.
+        if (this._settings.get_int('panel-layout-version') < 1) {
+            this._settings.set_string('mode', 'integrated');
+            this._settings.set_string('desktop-motion', 'docked');
+        }
 
+        if (this._settings.get_int('panel-layout-version') < 2) {
+            if (this._settings.get_int('workspace-width') === 640 &&
+                this._settings.get_int('workspace-height') === 420) {
+                this._settings.set_int('workspace-width', 520);
+                this._settings.set_int('workspace-height', 300);
+            }
+            this._settings.set_int('panel-layout-version', 2);
+        }
+
+        if (this._settings.get_int('panel-layout-version') < 3) {
+            if (this._settings.get_int('workspace-height') === 300)
+                this._settings.set_int('workspace-height', 340);
+            this._settings.set_int('panel-layout-version', 3);
+        }
         this._client = new MiraClient();
         this._notch = new Notch(this._client, this._tokens, this._settings, {
             extensionPath: this.path,
@@ -41,7 +61,7 @@ export default class MiraExtension extends Extension {
         console.log('[mira] extension enabled — always-on eyes + glance build');
 
         this._settingsChangedId = this._settings.connect('changed', (_s, key) => {
-            if (key === 'mode')
+            if (key === 'mode' || key === 'desktop-motion')
                 this._applyMode();
             else if (key === 'routine-delivered')
                 return;
@@ -58,6 +78,17 @@ export default class MiraExtension extends Extension {
         });
 
         this._client.start();
+        this._sessionChangedId = Main.sessionMode.connect('updated', () => this._syncSession());
+        this._syncSession();
+    }
+
+    _syncSession() {
+        if (!this._notch) return;
+        this._notch.visible = !Main.sessionMode.isLocked;
+        if (Main.sessionMode.isLocked) {
+            this._notch.close();
+            this._notch._desktop?.menu.close();
+        }
     }
 
     _wireClient() {
@@ -79,7 +110,8 @@ export default class MiraExtension extends Extension {
     // Integrated mode hides the panel clock so the notch "replaces" it; floating
     // leaves the panel untouched. Both render the same centered pill.
     _applyMode() {
-        const integrated = this._settings.get_string('mode') === 'integrated';
+        const integrated = this._settings.get_string('mode') === 'integrated' &&
+            this._settings.get_string('desktop-motion') === 'docked';
         const dateMenu = Main.panel?.statusArea?.dateMenu;
         if (dateMenu) {
             if (integrated && this._dateMenuWasVisible === undefined) {
@@ -95,6 +127,10 @@ export default class MiraExtension extends Extension {
     }
 
     disable() {
+        if (this._sessionChangedId) {
+            Main.sessionMode.disconnect(this._sessionChangedId);
+            this._sessionChangedId = 0;
+        }
         if (this._settingsChangedId) {
             this._settings.disconnect(this._settingsChangedId);
             this._settingsChangedId = 0;

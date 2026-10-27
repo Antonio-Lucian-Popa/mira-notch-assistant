@@ -504,7 +504,7 @@ impl Host {
                 } else {
                     self.desktop.receiver = None;
                     if let Ok((path, _)) = mira_core::bridge::paths() {
-                        let _ = std::fs::remove_file(path);
+                        let _ = mira_core::bridge::revoke_pairing(&path);
                     }
                     self.desktop.status = "Asociere revocată.".into();
                 }

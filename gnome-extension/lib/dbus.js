@@ -283,7 +283,7 @@ export class MiraClient {
     }
 
     workspace(method, args, cb = () => {}) {
-        const types = {PhoneAddAction:'(ss)',PhoneRemoveAction:'(s)',AddPaths: '(as)', Note: '(s)', PushClip: '(s)', Capture: '(b)', Remove: '(s)', Search: '(s)'};
+        const types = {PhoneSetShake:'(ss)',PhoneAddAction:'(ss)',PhoneRemoveAction:'(s)',AddPaths: '(as)', Note: '(s)', PushClip: '(s)', Capture: '(b)', Remove: '(s)', Search: '(s)'};
         this._callRet('workspace', method, types[method] ? new GLib.Variant(types[method], args) : null,
             ret => {try {cb(ret.n_children() ? JSON.parse(ret.deepUnpack()[0]) : {});} catch {cb({});}},
             e => cb({error: String(e)}));

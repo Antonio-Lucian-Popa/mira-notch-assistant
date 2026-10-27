@@ -188,12 +188,18 @@ class Notch extends St.Bin {
         });
         this._buildHeader();
         const body = new St.BoxLayout({style_class: 'mira-body', y_expand: true, x_expand: true});
-        this._pageArea = new St.Widget({
-            layout_manager: new Clutter.BinLayout(),
+        this._pageArea = new St.BoxLayout({
+            vertical: true,
             x_expand: true,
             y_expand: true,
         });
-        body.add_child(this._pageArea);
+        this._contentScroll = new St.ScrollView({
+            x_expand: true, y_expand: true, overlay_scrollbars: true,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+        });
+        this._contentScroll.set_child(this._pageArea);
+        body.add_child(this._contentScroll);
 
         this._dots = new St.BoxLayout({style_class: 'mira-dots', x_align: Clutter.ActorAlign.CENTER});
         this._buildDots();
@@ -273,13 +279,13 @@ class Notch extends St.Bin {
         const icons=['audio-x-generic-symbolic','view-list-symbolic','alarm-symbolic','weather-showers-symbolic','preferences-system-notifications-symbolic','folder-symbolic','checkbox-checked-symbolic','view-statistics-symbolic','document-edit-symbolic','edit-paste-symbolic','system-search-symbolic','phone-symbolic'];
         const names=['Muzică','Versuri','Focus','Apă','Remindere','Raft','Sarcini','Rezumat','Notițe','Clipboard','Căutare','Telefon'];
         PAGES.forEach((_name,index)=>{
-            const button=new St.Button({style_class:'mira-top-tab',can_focus:true,accessible_name:names[index],child:new St.Icon({icon_name:icons[index],icon_size:18})});
+            const button=new St.Button({style_class:'mira-top-tab',can_focus:true,accessible_name:names[index],child:new St.Icon({icon_name:icons[index],icon_size:14})});
             button.connect('clicked',()=>this.setPage(index));
             this._tabActors.push(button);this._tabsBox.add_child(button);
         });
-        const scroll=new St.ScrollView({x_expand:true,y_align:Clutter.ActorAlign.CENTER,hscrollbar_policy:St.PolicyType.NEVER,vscrollbar_policy:St.PolicyType.NEVER});
+        const scroll=new St.ScrollView({x_expand:true,y_align:Clutter.ActorAlign.CENTER,hscrollbar_policy:St.PolicyType.EXTERNAL,vscrollbar_policy:St.PolicyType.NEVER});
         scroll.set_child(this._tabsBox);this._header.add_child(scroll);
-        const stamp=new St.BoxLayout({vertical:true,y_align:Clutter.ActorAlign.CENTER,style_class:'mira-header-stamp'});
+        const stamp=new St.BoxLayout({vertical:true,width:60,x_expand:false,y_align:Clutter.ActorAlign.CENTER,style_class:'mira-header-stamp'});
         stamp.add_child(this._time);stamp.add_child(this._date);this._header.add_child(stamp);
     }
 
@@ -376,7 +382,7 @@ class Notch extends St.Bin {
         this._btnPrev = this._iconButton('media-skip-backward-symbolic', () => this._client.previous());
         this._btnPlay = this._iconButton('media-playback-start-symbolic', () => this._client.playPause(), 'mira-ctl-btn mira-ctl-play');
         this._btnNext = this._iconButton('media-skip-forward-symbolic', () => this._client.next());
-        this._btnPrev.get_child().icon_size=25;this._btnPlay.get_child().icon_size=32;this._btnNext.get_child().icon_size=25;
+        this._btnPrev.get_child().icon_size=16;this._btnPlay.get_child().icon_size=22;this._btnNext.get_child().icon_size=16;
         transport.add_child(this._btnPrev);
         transport.add_child(this._btnPlay);
         transport.add_child(this._btnNext);
@@ -661,28 +667,28 @@ class Notch extends St.Bin {
 
     // --- Standalone reminders ---
     _buildRemindersPage() {
-        const page = new St.BoxLayout({style_class: 'mira-page mira-reminders', x_expand: true, y_expand: true});
-        const hero = new St.BoxLayout({vertical: true, style_class: 'mira-reminder-hero', y_align: Clutter.ActorAlign.CENTER});
-        hero.add_child(new St.Label({text: 'URMEAZĂ · UP NEXT', style_class: 'mira-reminder-eyebrow'}));
+        const page = new St.BoxLayout({vertical: true, style_class: 'mira-page mira-reminders', x_expand: true, y_expand: true});
+        const hero = new St.BoxLayout({style_class: 'mira-reminder-hero', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this._reminderTime = new St.Label({text: '—', style_class: 'mira-reminder-time'});
-        this._reminderName = new St.Label({text: 'Niciun reminder', style_class: 'mira-reminder-name'});
+        this._reminderName = new St.Label({text: 'Niciun reminder', x_expand: true, y_align: Clutter.ActorAlign.CENTER, style_class: 'mira-reminder-name'});
         this._reminderName.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         this._reminderBar = this._makeBar('#FFB65C', 3);
         hero.add_child(this._reminderTime);
         hero.add_child(this._reminderName);
-        hero.add_child(this._reminderBar.actor);
+        page.add_child(this._reminderBar.actor);
         const right = new St.BoxLayout({vertical: true, style_class: 'mira-reminder-right', x_expand: true});
-        const form = new St.BoxLayout({style_class: 'mira-reminder-form'});
-        this._reminderTitleEntry = new St.Entry({hint_text: 'Sună-l pe Alex peste 20 de minute', style_class: 'mira-reminder-entry', can_focus: true, x_expand: true});
+        const form = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'mira-reminder-form'});
+        this._reminderTitleEntry = new St.Entry({hint_text: 'Ce vrei să-ți amintesc?', style_class: 'mira-reminder-entry', can_focus: true, x_expand: true});
         this._reminderWhenEntry = new St.Entry({text: '15m', hint_text: '15m / 14:30', style_class: 'mira-reminder-when', can_focus: true});
         this._reminderTitleEntry.clutter_text.set_max_length(400);
         this._reminderTitleEntry.clutter_text.connect('text-changed', () => this._previewNatural());
         this._reminderWhenEntry.clutter_text.set_max_length(12);
-        this._reminderAdd = this._iconButton('list-add-symbolic', () => this._addReminder());
+        this._reminderAdd = new St.Button({label: 'Adaugă', can_focus: true, y_align: Clutter.ActorAlign.CENTER, style_class: 'mira-reminder-add'});
+        this._reminderAdd.connect('clicked', () => this._addReminder());
         this._reminderAdd.accessible_name = 'Adaugă reminder';
         form.add_child(this._reminderTitleEntry);
-        form.add_child(this._reminderWhenEntry);
-        form.add_child(this._reminderAdd);
+        const timing = new St.BoxLayout({style_class: 'mira-reminder-timing', x_expand: true});
+        timing.add_child(this._reminderWhenEntry);
         for (const entry of [this._reminderTitleEntry, this._reminderWhenEntry])
             entry.clutter_text.connect('activate', () => this._addReminder());
         const presets = new St.BoxLayout({style_class: 'mira-reminder-presets'});
@@ -694,10 +700,13 @@ class Notch extends St.Bin {
         this._reminderList = new St.BoxLayout({vertical: true, style_class: 'mira-reminder-list', x_expand: true});
         scroll.set_child(this._reminderList);
         right.add_child(form);
-        right.add_child(presets);
+        timing.add_child(presets);
+        timing.add_child(new St.Widget({x_expand: true}));
+        timing.add_child(this._reminderAdd);
+        form.add_child(timing);
         right.add_child(this._reminderFeedback);
         right.add_child(scroll);
-        page.add_child(hero);
+        page.insert_child_at_index(hero, 0);
         page.add_child(right);
         this._remindersPage = page;
         this._pageArea.add_child(page);
@@ -944,7 +953,7 @@ class Notch extends St.Bin {
 
     // --- reusable widgets ---
     _iconButton(icon, onClick, klass = 'mira-ctl-btn') {
-        const btn = new St.Button({style_class: klass, can_focus: true});
+        const btn = new St.Button({style_class: klass, can_focus: true, y_align: Clutter.ActorAlign.CENTER, x_align: Clutter.ActorAlign.CENTER});
         btn.set_child(new St.Icon({icon_name: icon, icon_size: 16}));
         btn.connect('clicked', onClick);
         return btn;
@@ -958,7 +967,7 @@ class Notch extends St.Bin {
     }
 
     _pillButton(icon, text, onClick, klass = 'mira-pill') {
-        const btn = new St.Button({style_class: klass, can_focus: true});
+        const btn = new St.Button({style_class: klass, can_focus: true, y_align: Clutter.ActorAlign.CENTER, x_align: Clutter.ActorAlign.CENTER});
         const box = new St.BoxLayout({style_class: 'mira-pill-box', y_align: Clutter.ActorAlign.CENTER});
         if (icon)
             box.add_child(new St.Icon({icon_name: icon, icon_size: 13}));
@@ -1141,6 +1150,9 @@ class Notch extends St.Bin {
         this._closed = minimal
             ? {w: t.minimal.width * scale, h: t.minimal.height, r: t.minimal.radiusBottom}
             : {w: t.closed.width * scale, h: t.closed.height * scale, r: t.closed.radiusBottom};
+        if (this._settings.get_string('mode') === 'integrated' &&
+            this._settings.get_string('desktop-motion') === 'docked')
+            this._closed.h = Math.max(24, Main.panel.height || 32);
         this._hoverSize = {w: this._settings.get_int('workspace-width'), h: this._settings.get_int('workspace-height'), r: 26};
         this._alertSize = {w: t.alert.width * scale, h: t.alert.height, r: t.alert.radiusBottom};
         const g = t.greeting ?? t.alert;
@@ -1163,16 +1175,18 @@ class Notch extends St.Bin {
             return;
         if (this._desktop && this._desktop.mode !== 'docked') {this._desktop.move(this.x, this.y); return;}
         const x = Math.round(monitor.x + (monitor.width - width) / 2);
-        this.set_position(x, monitor.y + 32);
+        this.set_position(x, monitor.y + (this._settings.get_string('mode') === 'integrated' ? 0 : 32));
     }
 
     // --- open / close ---
     _onHover() {
-        // Explicit click-to-open keeps a moving companion catchable.
         if (this.hover && this._closeTimer) {GLib.source_remove(this._closeTimer); this._closeTimer = 0;}
+        if (this._desktop?.mode !== 'docked') return;
+        if (this.hover) this.open(false);
+        else if (!this._desktop.drag && !this._desktop.menu.isOpen) this._scheduleClose();
     }
 
-    open() {
+    open(focus = true) {
         this._bannerGeneration++;
         if (this._closeTimer) {
             GLib.source_remove(this._closeTimer);
@@ -1187,7 +1201,7 @@ class Notch extends St.Bin {
         this._alertBox.hide();
         this._greetBox.hide();
         this._openBox.show();
-        this.grab_key_focus();
+        if (focus) this.grab_key_focus();
         this._animateTo(this._hoverSize, this._tokens.motion.open.durationMs, Clutter.AnimationMode.EASE_OUT_BACK);
         this._updateHeader();
         this._startHeaderViz();
@@ -1201,7 +1215,8 @@ class Notch extends St.Bin {
         const delay = this._tokens.notch.hoverCloseDelayMs ?? 300;
         this._closeTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
             this._closeTimer = 0;
-            this.close();
+            if (!this.hover && !this._desktop?.drag && !this._desktop?.menu.isOpen)
+                this.close();
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -1243,6 +1258,7 @@ class Notch extends St.Bin {
         const n = PAGES.length;
         this._page = ((i % n) + n) % n;
         this._showPageActor(this._page);
+        if (this._contentScroll) this._contentScroll.vscroll.adjustment.value = 0;
         this._tabActors?.forEach((tab,index)=>index===this._page?tab.add_style_class_name('active'):tab.remove_style_class_name('active'));
         this._dotActors.forEach((d, idx) =>
             idx === this._page ? d.add_style_class_name('active') : d.remove_style_class_name('active')
@@ -1311,6 +1327,8 @@ class Notch extends St.Bin {
     }
 
     _onScroll(ev) {
+        if (this._open && !this._header.contains(ev.get_source()))
+            return Clutter.EVENT_PROPAGATE;
         const dir = ev.get_scroll_direction();
         if (dir === Clutter.ScrollDirection.UP || dir === Clutter.ScrollDirection.LEFT)
             this.setPage(this._page - 1);

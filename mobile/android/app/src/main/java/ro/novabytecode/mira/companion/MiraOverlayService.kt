@@ -24,6 +24,7 @@ class MiraOverlayService : Service() {
     private lateinit var manager: WindowManager
     private lateinit var capsule: Capsule
     private lateinit var params: WindowManager.LayoutParams
+    private lateinit var shake: ShakeRemote
     private var attached = false
     private var interactive = true
     private var cameraAligned=false
@@ -32,11 +33,14 @@ class MiraOverlayService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             interactive = intent.action != Intent.ACTION_SCREEN_OFF
             if (interactive) capsule.animateFrame() else capsule.stop()
+            shake.update(interactive)
         }
     }
     override fun onBind(intent: Intent?) = null
     override fun onCreate() {
         super.onCreate()
+        shake = ShakeRemote(this)
+        interactive = getSystemService(PowerManager::class.java).isInteractive
         MiraAlarms.channels(this)
         val stop = PendingIntent.getService(this, 1, Intent(this, MiraOverlayService::class.java).setAction("stop"), PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(this, "mira.overlay").setSmallIcon(R.drawable.ic_mira)
@@ -70,6 +74,7 @@ class MiraOverlayService : Service() {
     private fun reload() {
         if (!attached) return
         if (!Settings.canDrawOverlays(this)) { stopSelf(); return }
+        shake.update(interactive)
         capsule.state = MiraStore(this).snapshot()
         resize()
         capsule.animateFrame()
@@ -99,6 +104,7 @@ class MiraOverlayService : Service() {
     }
     override fun onConfigurationChanged(config:android.content.res.Configuration){super.onConfigurationChanged(config);reload()}
     override fun onDestroy() {
+        shake.close()
         if (attached) {
             capsule.stop()
             unregisterReceiver(screen)

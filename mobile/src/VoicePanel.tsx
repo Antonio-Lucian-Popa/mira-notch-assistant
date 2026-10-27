@@ -188,7 +188,7 @@ export function VoicePanel({ data, run }: Props) {
             />
             <View style={s.wrap}>
               <Button
-                title="Fotografiază QR-ul"
+                title="Scanează QR-ul live"
                 onPress={() =>
                   run(async () => {
                     setCode(await companion.scanPairing());
@@ -227,6 +227,23 @@ export function VoicePanel({ data, run }: Props) {
                 }
               />
             </View>
+            <Text style={s.recordTitle}>Merg la baie · scutură telefonul</Text>
+            <Text style={s.small}>
+              Trei scuturări ferme alternează Plecare / Revenire, conform listei
+              salvate pe PC. Funcționează cu capsula pornită și ecranul
+              telefonului aprins, inclusiv peste alte aplicații. Pauză de 15
+              secunde între gesturi. PC-ul trebuie să fie online și primirea
+              activă. Revenirea trimite shortcutul ales; deblocarea securizată
+              cere autentificarea sistemului.
+            </Text>
+            <Button
+              title={
+                data.shakeEnabled
+                  ? 'Dezactivează scuturarea'
+                  : 'Activează scuturarea Plecare / Revenire'
+              }
+              onPress={() => run(() => companion.shake(!data.shakeEnabled))}
+            />
             {actions.map(action => (
               <Button
                 key={action.id}

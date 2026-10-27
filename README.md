@@ -219,7 +219,7 @@ The toolbar includes **Telefon** for pairing, receiving transcripts and register
 
 1. On the PC, open **Telefon** and **Pornește primirea**. The receiver is off by
    default and stops when the GNOME extension / Windows application closes.
-2. On Android, open **Voce & PC**, photograph the desktop QR or paste its pairing
+2. On Android, open **Voce & PC**, scan the desktop QR live or paste its pairing
    code, then select **Asociază PC-ul**. Pairing authorizes PDF uploads **and** the
    locally registered keyboard actions. Keep the pairing code private; **Revocă
    asocierea** on the PC rotates its identity and invalidates old pairings.
@@ -414,3 +414,36 @@ it covers switching already-open browsers, private metadata, command routing,
 player exit and returning to an empty session. It is opt-in to keep ordinary
 `cargo test` from touching a live user bus. Real browser behavior depends on the
 installed browser, site, sandbox and privacy configuration.
+
+On Ubuntu/GNOME, Mira starts in the top panel at the clock position. Hover to
+open the workspace with its top icon tabs; leaving closes it after a short delay.
+Existing installs return to this panel layout once on upgrade. Pin, follow and
+free roam remain available explicitly from the companion context menu; choose
+“Acasă · înapoi sus” to return to the panel and restore hover opening.
+
+The compact GNOME layout reserves space for the clock/date even at 440 px.
+Reminder titles use the full panel width, with time presets on a separate row.
+Android 0.2.1 adds an opt-in “Merg la baie” shake gesture under Voice & PC: with
+the overlay active and phone screen on, three firm shakes request the paired
+PC's registered lock action. It requires an online PC with reception enabled,
+does not retry offline commands, and has a 15 second cooldown.
+
+The GNOME workspace uses a 520×340 default, with a fixed top toolbar and a
+vertically scrollable content area. Larger forms and all registered phone
+actions remain reachable without enlarging the whole panel. Android 0.2.2
+reads pairing QR codes automatically from its live in-app camera preview,
+without taking a photograph. Manual pairing codes remain available.
+
+Android 0.2.3 requests the PC's saved shake sequence. On Ubuntu, add shortcuts
+in Telefon, then mark one “Plecare” and another “Revenire”. Each accepted shake
+request alternates the selected profiles; “Resetează la plecare” realigns the
+sequence after manual changes. Mappings survive restarts and re-pairing. This
+is request alternation, not automatic detection of the actual lock state.
+The GNOME receiver can remain active while locked, with Mira's UI hidden,
+but return shortcuts do not bypass the system's unlock authentication.
+
+Any phone shortcut, including the built-in lock action or a selected shake
+action, can be deleted. Deletion clears only its shake assignments and pending
+queue entries. It never selects another action automatically. With one selected
+action, shakes repeat that action; with neither selected, shaking does nothing.
+These choices, including an empty list, remain saved after receiver restarts.
