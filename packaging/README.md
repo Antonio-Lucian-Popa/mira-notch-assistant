@@ -26,7 +26,18 @@ gnome-extensions enable mira@novabytecode.ro   # after logging out/in
 extensions.gnome.org cannot host the daemon binary, so the `.deb` is the
 distribution channel on Ubuntu.
 
-## Windows (per-user installer) — pending
+## Windows (per-user installer)
 
-Will build a per-user installer (no admin rights) with a clean uninstall, via
-Inno Setup, under `packaging/windows/`. Added with the Windows host.
+On Windows with Rust and Inno Setup 6:
+
+```powershell
+cargo build --release --locked -p mira-win
+iscc /DMiraVersion=0.3.0 packaging/windows/mira.iss
+```
+
+Output: `packaging/windows/Output/mira_0.3.0_windows_x64_setup.exe`.
+The portable binary is `target/release/mira-win.exe`. The installer writes to
+LocalAppData, offers optional startup at sign-in, and includes an uninstaller.
+Personal settings and the SQLite database under `%APPDATA%\Mira` are preserved.
+The release workflow builds and publishes the `.deb`, portable `.exe`, and
+installer together; publication requires both platform builds to succeed.

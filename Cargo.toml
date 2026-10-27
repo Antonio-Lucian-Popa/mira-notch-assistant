@@ -4,15 +4,13 @@ members = [
     "crates/mira-core",
     "crates/mira-platform-linux",
     "crates/mira-daemon",
+    "crates/mira-win",
 ]
 
-# Platform crates and binaries are added to `members` in their own build steps:
-#   crates/mira-platform-win, crates/mira-platform-linux,
-#   crates/mira-win (Windows bin), crates/mira-daemon (Linux bin).
-# Each OS-specific crate is fully cfg-gated so the workspace builds green on any OS.
+# OS-specific code is cfg-gated so the workspace checks on both platforms.
 
 [workspace.package]
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"

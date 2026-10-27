@@ -10,7 +10,7 @@
 #     on the job that publishes the release.
 #
 # What it does: computes the next vX.Y.Z tag, builds the Debian package (and the
-# Windows .exe once the `mira-win` crate exists), and publishes a GitHub Release
+# Windows executable and installer), and publishes a GitHub Release
 # with those artifacts attached.
 
 name: release
@@ -18,6 +18,7 @@ name: release
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths-ignore:
       - 'website/**'
       - '**/*.md'
@@ -57,6 +58,13 @@ jobs:
             echo "has_windows=false" >> "$GITHUB_OUTPUT"
           fi
           cargo_ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+            test "$version" = "$cargo_ver"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "tag=v$version" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           latest="$(git tag -l 'v*' --sort=-v:refname | head -n1 || true)"
           if [ -z "$latest" ]; then
             version="$cargo_ver"
@@ -85,6 +93,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends libglib2.0-bin dpkg-dev zip
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Verify source
+        run: |
+          cargo fmt --check
+          cargo test --workspace --locked
+          node gnome-extension/tests/gaze.test.mjs
+          node gnome-extension/tests/reminders.test.mjs
+          cargo build --locked -p mira-daemon
+          dbus-run-session -- python3 crates/mira-daemon/tests/reminders_dbus.py
       - name: Build the .deb
         env:
           MIRA_VERSION: ${{ needs.version.outputs.version }}
@@ -95,7 +111,7 @@ jobs:
           path: target/debian/*.deb
           if-no-files-found: error
 
-  # Activates automatically once crates/mira-win exists. Skipped until then.
+  # Build the native Windows host and its per-user installer.
   build-windows:
     runs-on: windows-latest
     needs: version
@@ -107,22 +123,28 @@ jobs:
       - name: Build the Windows binary
         env:
           MIRA_VERSION: ${{ needs.version.outputs.version }}
-        run: cargo build --release -p mira-win
+        run: cargo build --release --locked -p mira-win
+      - name: Build the per-user installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMiraVersion=${{ needs.version.outputs.version }}" packaging/windows/mira.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Collect the .exe
         shell: bash
         run: |
           mkdir -p dist
-          cp target/release/mira*.exe dist/ 2>/dev/null || true
+          cp target/release/mira-win.exe dist/
+          cp packaging/windows/Output/*.exe dist/
       - uses: actions/upload-artifact@v4
         with:
           name: mira-windows
           path: dist/*.exe
-          if-no-files-found: warn
+          if-no-files-found: error
 
   release:
     runs-on: ubuntu-latest
     needs: [version, build-linux, build-windows]
-    if: ${{ always() && needs.build-linux.result == 'success' }}
+    if: ${{ always() && needs.build-linux.result == 'success' && needs.build-windows.result == 'success' }}
     permissions:
       contents: write
     steps:

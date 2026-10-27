@@ -174,6 +174,14 @@ impl Store {
                 done            INTEGER NOT NULL DEFAULT 0,
                 remind_at_epoch INTEGER
             );
+            CREATE TABLE IF NOT EXISTS reminder (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                due_epoch INTEGER NOT NULL,
+                created_epoch INTEGER NOT NULL,
+                notified INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS reminder_due ON reminder(due_epoch, id);
             CREATE TABLE IF NOT EXISTS water_log (
                 day     TEXT PRIMARY KEY,
                 glasses INTEGER NOT NULL DEFAULT 0
@@ -269,6 +277,54 @@ impl Store {
             })
         })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    // --- Standalone reminders (acknowledged reminders are removed) ---
+    pub fn add_reminder(&self, text: &str, due: i64, now: i64) -> Result<i64> {
+        let text = crate::reminder::validate(text, due, now)?;
+        self.conn.execute(
+            "INSERT INTO reminder (text, due_epoch, created_epoch) VALUES (?1, ?2, ?3)",
+            (text, due, now),
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn reminders(&self) -> Result<Vec<crate::reminder::Reminder>> {
+        let mut stmt = self.conn.prepare("SELECT id, text, due_epoch, created_epoch, notified FROM reminder ORDER BY due_epoch, id")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(crate::reminder::Reminder {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                due_epoch: row.get(2)?,
+                created_epoch: row.get(3)?,
+                notified: row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub fn snooze_reminder(&self, id: i64, due: i64, now: i64) -> Result<()> {
+        crate::reminder::validate("Snooze", due, now)?;
+        let changed = self.conn.execute(
+            "UPDATE reminder SET due_epoch=?2, created_epoch=?3, notified=0 WHERE id=?1",
+            (id, due, now),
+        )?;
+        if changed == 0 {
+            return Err(crate::Error::other("Reminder no longer exists"));
+        }
+        Ok(())
+    }
+
+    pub fn mark_reminder_notified(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("UPDATE reminder SET notified=1 WHERE id=?1", [id])?;
+        Ok(())
+    }
+
+    pub fn remove_reminder(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM reminder WHERE id=?1", [id])?;
+        Ok(())
     }
 
     // --- Water (per day) ---
@@ -419,5 +475,43 @@ mod tests {
         // Reopen and confirm persistence.
         let store = Store::open(&path).unwrap();
         assert_eq!(store.shelf_items().unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod reminder_tests {
+    use super::*;
+    #[test]
+    fn reminders_survive_restart_and_snooze_rearms() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mira.db");
+        let id;
+        {
+            let store = Store::open(&path).unwrap();
+            store.add_todo("A separate task").unwrap();
+            id = store.add_reminder("  Call Mom  ", 200, 100).unwrap();
+            store.add_reminder("Earlier", 150, 100).unwrap();
+            store.mark_reminder_notified(id).unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let items = store.reminders().unwrap();
+        assert_eq!(items[0].text, "Earlier");
+        assert_eq!(items[1].text, "Call Mom");
+        assert!(items[1].notified);
+        store.snooze_reminder(id, 500, 200).unwrap();
+        let item = &store.reminders().unwrap()[1];
+        assert!(!item.notified);
+        assert_eq!((item.due_epoch, item.created_epoch), (500, 200));
+        store.remove_reminder(id).unwrap();
+        assert_eq!(store.reminders().unwrap().len(), 1);
+        assert_eq!(store.todos().unwrap().len(), 1);
+        assert!(store.snooze_reminder(id, 700, 600).is_err());
+    }
+    #[test]
+    fn invalid_reminders_do_not_change_database() {
+        let store = Store::open_in_memory().unwrap();
+        assert!(store.add_reminder("", 200, 100).is_err());
+        assert!(store.add_reminder("Call", 100, 100).is_err());
+        assert!(store.reminders().unwrap().is_empty());
     }
 }

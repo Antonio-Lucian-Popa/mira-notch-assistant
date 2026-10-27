@@ -569,6 +569,77 @@ impl TodoIface {
         -> zbus::Result<()>;
 }
 
+// --- Standalone reminders --------------------------------------------------
+
+pub struct RemindersIface {
+    pub shared: Arc<Shared>,
+}
+
+#[zbus::interface(name = "ro.novabytecode.Mira.Reminders")]
+impl RemindersIface {
+    async fn get_items(&self) -> zbus::fdo::Result<Vec<(i64, String, i64, i64, bool)>> {
+        Ok(self
+            .shared
+            .store
+            .lock()
+            .await
+            .reminders()
+            .map_err(to_fdo)?
+            .into_iter()
+            .map(|r| (r.id, r.text, r.due_epoch, r.created_epoch, r.notified))
+            .collect())
+    }
+    async fn add(
+        &self,
+        text: String,
+        due_epoch: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<i64> {
+        let id = self
+            .shared
+            .store
+            .lock()
+            .await
+            .add_reminder(&text, due_epoch, now_epoch())
+            .map_err(to_fdo)?;
+        Self::items_changed(&e).await.ok();
+        Ok(id)
+    }
+    async fn remove(
+        &self,
+        id: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .remove_reminder(id)
+            .map_err(to_fdo)?;
+        Self::items_changed(&e).await.ok();
+        Ok(())
+    }
+    async fn snooze(
+        &self,
+        id: i64,
+        due_epoch: i64,
+        #[zbus(signal_emitter)] e: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.shared
+            .store
+            .lock()
+            .await
+            .snooze_reminder(id, due_epoch, now_epoch())
+            .map_err(to_fdo)?;
+        Self::items_changed(&e).await.ok();
+        Ok(())
+    }
+    #[zbus(signal)]
+    pub async fn items_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+    #[zbus(signal)]
+    pub async fn due(emitter: &SignalEmitter<'_>, id: i64, text: &str) -> zbus::Result<()>;
+}
+
 // --- Shelf -----------------------------------------------------------------
 
 pub struct ShelfIface {
