@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Eyes } from './src/Eyes';
+import { NavIcon } from './src/NavIcon';
 import { VoicePanel } from './src/VoicePanel';
 import { companion } from './src/native';
 import {
@@ -29,12 +30,12 @@ import {
 } from './src/model';
 
 type Tab = 'today' | 'reminders' | 'studio' | 'voice' | 'settings';
-const tabs: { id: Tab; title: string; icon: string }[] = [
-  { id: 'today', title: 'Acasă', icon: '◉' },
-  { id: 'reminders', title: 'Remindere', icon: '◷' },
-  { id: 'studio', title: 'Studio', icon: '✦' },
-  { id: 'voice', title: 'Voce & PC', icon: '◌' },
-  { id: 'settings', title: 'Setări', icon: '⚙' },
+const tabs: { id: Tab; title: string }[] = [
+  { id: 'today', title: 'Acasă' },
+  { id: 'reminders', title: 'Remindere' },
+  { id: 'studio', title: 'Studio' },
+  { id: 'voice', title: 'Voce & PC' },
+  { id: 'settings', title: 'Setări' },
 ];
 function Button({
   title,
@@ -194,7 +195,7 @@ function MiraApp() {
     today: 'În ritmul tău.',
     reminders: 'Nu uita de tine.',
     studio: 'Puțină personalitate.',
-    voice: 'Vocea ta, la îndemână.',
+    voice: 'Spune „Mira”.',
     settings: 'Mira, pe gustul tău.',
   }[tab];
   return (
@@ -205,9 +206,11 @@ function MiraApp() {
           <View style={s.brandDot} />
           <Text style={s.brand}>mira</Text>
         </View>
-        <Text style={s.local}>ANDROID PREVIEW · LOCAL</Text>
+        <Text style={s.local}>COMPANIONUL TĂU</Text>
       </View>
       <ScrollView
+        key={tab}
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={s.content}
         keyboardShouldPersistTaps="handled"
       >
@@ -252,6 +255,7 @@ function MiraApp() {
                   </View>
                   <Eyes
                     theme={data.theme}
+                    compact
                     urgent={!!urgent}
                     motion={data.motion !== false}
                   />
@@ -275,7 +279,18 @@ function MiraApp() {
                   <Text style={s.small}>25 MIN</Text>
                 </View>
                 <Card>
-                  <Text style={s.timer}>{duration(remaining)}</Text>
+                  <View style={s.focusHeader}>
+                    <Text style={s.timer}>{duration(remaining)}</Text>
+                    <View style={s.focusBadge}>
+                      <Text style={s.focusBadgeText}>
+                        {focus
+                          ? focus.paused
+                            ? 'ÎN PAUZĂ'
+                            : 'ÎN FOCUS'
+                          : 'POMODORO'}
+                      </Text>
+                    </View>
+                  </View>
                   <Caption>
                     {focus?.paused
                       ? 'Poți reveni când ești pregătit.'
@@ -318,7 +333,7 @@ function MiraApp() {
                 <View style={s.sectionRow}>
                   <Text style={s.section}>Lucrurile mici contează</Text>
                 </View>
-                <View style={s.row}>
+                <View style={[s.row, s.statsRow]}>
                   <View style={s.grow}>
                     <Card>
                       <Text style={s.stat}>
@@ -733,7 +748,7 @@ function MiraApp() {
           </>
         )}
       </ScrollView>
-      <View style={s.nav}>
+      <View style={s.nav} accessibilityRole="tablist">
         {tabs.map(t => (
           <Pressable
             key={t.id}
@@ -744,11 +759,18 @@ function MiraApp() {
               setError('');
               setTab(t.id);
             }}
-            style={s.navItem}
+            style={({ pressed }) => [s.navItem, pressed && { opacity: 0.65 }]}
           >
-            <Text style={[s.navIcon, tab === t.id && s.active]}>{t.icon}</Text>
-            <Text style={[s.navText, tab === t.id && s.active]}>{t.title}</Text>
-            {tab === t.id && <View style={s.navDot} />}
+            <View style={[s.navIconBox, tab === t.id && s.navIconSelected]}>
+              <NavIcon name={t.id} active={tab === t.id} />
+            </View>
+            <Text
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.3}
+              style={[s.navText, tab === t.id && s.active]}
+            >
+              {t.title}
+            </Text>
           </Pressable>
         ))}
       </View>
@@ -764,10 +786,10 @@ export default function App() {
 }
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0b1016' },
-  content: { padding: 22, paddingBottom: 30, gap: 15 },
+  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24, gap: 14 },
   brandRow: {
     paddingHorizontal: 24,
-    paddingVertical: 16,
+    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -787,21 +809,23 @@ const s = StyleSheet.create({
   local: { fontSize: 9, color: '#8d9fae', letterSpacing: 1.2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   grow: { flex: 1 },
+  statsRow: { alignItems: 'flex-start' },
   eyebrow: { color: '#91a7b7', fontSize: 12, letterSpacing: 0.5 },
   heading: {
-    fontSize: 32,
+    fontSize: 27,
+    lineHeight: 33,
     fontWeight: '700',
     color: '#eef5f4',
     letterSpacing: -1.3,
     marginBottom: 5,
   },
   hero: {
-    backgroundColor: '#101c23',
+    backgroundColor: '#10272c',
     borderColor: '#243f45',
     borderWidth: 1,
     padding: 20,
     paddingTop: 15,
-    borderRadius: 30,
+    borderRadius: 24,
     marginBottom: 8,
   },
   urgentHero: { backgroundColor: '#281b25', borderColor: '#6b3746' },
@@ -816,7 +840,7 @@ const s = StyleSheet.create({
   stoppedDot: { backgroundColor: '#718092' },
   dot: { width: 7, height: 7, borderRadius: 4 },
   heroTitle: {
-    fontSize: 19,
+    fontSize: 17,
     color: '#eef5f4',
     fontWeight: '600',
     textAlign: 'center',
@@ -834,7 +858,13 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  section: { color: '#e3ecef', fontWeight: '600', fontSize: 16, marginTop: 7 },
+  section: {
+    color: '#e3ecef',
+    fontWeight: '600',
+    fontSize: 16,
+    marginTop: 2,
+    flexShrink: 1,
+  },
   small: { fontSize: 10, color: '#8da1b3', lineHeight: 17 },
   card: {
     backgroundColor: '#141c26',
@@ -851,9 +881,28 @@ const s = StyleSheet.create({
     lineHeight: 23,
   },
   caption: { color: '#9bafbd', fontSize: 12, lineHeight: 20 },
+  focusHeader: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  focusBadge: {
+    backgroundColor: '#263a35',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  focusBadgeText: {
+    color: '#93f4c5',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
   timer: {
     color: '#eff9f3',
-    fontSize: 52,
+    fontSize: 46,
     letterSpacing: -2,
     fontWeight: '300',
     fontVariant: ['tabular-nums'],
@@ -862,7 +911,7 @@ const s = StyleSheet.create({
   statUnit: { fontSize: 11, color: '#9bafbd', fontWeight: '400' },
   tag: { fontSize: 9, color: '#85efb7', letterSpacing: 1.3, lineHeight: 20 },
   button: {
-    minHeight: 44,
+    minHeight: 50,
     paddingHorizontal: 18,
     paddingVertical: 13,
     borderRadius: 15,
@@ -870,7 +919,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#85efb7',
   },
-  buttonText: { fontSize: 12, color: '#10251c', fontWeight: '700' },
+  buttonText: { fontSize: 14, color: '#10251c', fontWeight: '700' },
   quiet: { backgroundColor: '#202c39' },
   quietText: { color: '#d0dce6' },
   link: { fontSize: 11, color: '#85efb7' },
@@ -928,15 +977,31 @@ const s = StyleSheet.create({
   },
   nav: {
     borderTopWidth: 1,
-    borderColor: '#202d3a',
+    borderColor: '#1b2931',
     flexDirection: 'row',
-    paddingTop: 12,
-    paddingBottom: 8,
-    backgroundColor: '#0e151d',
+    marginHorizontal: 18,
+    marginBottom: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    borderRadius: 22,
+    backgroundColor: '#101d25',
   },
-  navItem: { flex: 1, alignItems: 'center', gap: 5, minHeight: 52 },
-  navIcon: { color: '#7e92a3', fontSize: 22 },
-  navText: { color: '#7e92a3', fontSize: 10 },
-  active: { color: '#85efb7' },
-  navDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#85efb7' },
+  navItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    minHeight: 54,
+  },
+  navIconBox: {
+    width: 42,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    overflow: 'hidden',
+  },
+  navIconSelected: { backgroundColor: '#1b302c' },
+  navText: { color: '#92a4b1', fontSize: 10, fontWeight: '500' },
+  active: { color: '#93f4c5', fontWeight: '600' },
 });

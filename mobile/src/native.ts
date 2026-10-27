@@ -1,6 +1,8 @@
 import { NativeModules } from 'react-native';
 import type { Snapshot } from './model';
 type Bridge = {
+  voiceModelDownload(): Promise<string>;
+  voiceAuto(enabled: boolean): Promise<string>;
   voiceStart(dictate: boolean): Promise<string>;
   voiceStop(): Promise<string>;
   transcript(id: string): Promise<string>;
@@ -22,6 +24,12 @@ type Bridge = {
 };
 const bridge = NativeModules.MiraCompanion as Bridge;
 export const companion = {
+  async voiceModelDownload() {
+    await bridge.voiceModelDownload();
+  },
+  async voiceAuto(enabled: boolean) {
+    await bridge.voiceAuto(enabled);
+  },
   async voiceStart(dictate: boolean) {
     await bridge.voiceStart(dictate);
   },

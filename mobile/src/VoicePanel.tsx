@@ -5,11 +5,13 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { companion } from './native';
+import { Eyes } from './Eyes';
 import type { Snapshot, Transcript, RemoteAction } from './model';
 type Props = {
   data: Snapshot;
@@ -19,17 +21,21 @@ function Button({
   title,
   onPress,
   danger = false,
+  disabled = false,
 }: {
   title: string;
   onPress: () => void;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={title}
       onPress={onPress}
-      style={[s.button, danger && s.stop]}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
+      style={[s.button, danger && s.stop, disabled && s.disabled]}
     >
       <Text style={s.buttonText}>{title}</Text>
     </Pressable>
@@ -37,11 +43,13 @@ function Button({
 }
 export function VoicePanel({ data, run }: Props) {
   const [code, setCode] = useState('');
+  const [details, setDetails] = useState(false);
   const [actions, setActions] = useState<RemoteAction[]>([]);
   const [opened, setOpened] = useState<Transcript>();
   const voice = data.voice;
+  const model = data.voiceModel;
   const peer = data.peer;
-  const start = (dictate: boolean) =>
+  const start = (dictate: boolean, automatic = false) =>
     run(async () => {
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
@@ -54,44 +62,132 @@ export function VoicePanel({ data, run }: Props) {
         await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
         );
-      await companion.voiceStart(dictate);
+      if (automatic) await companion.voiceAuto(true);
+      else await companion.voiceStart(dictate);
     });
   return (
     <>
-      <View style={s.card}>
-        <Text style={s.title}>Mira, te ascult.</Text>
-        <Text style={s.body}>
-          Comenzi fixe, fără chatbot. Serviciul vocal Android poate procesa
-          vocea local sau online, în funcție de telefon și limbă.
-        </Text>
-        <Text accessibilityLiveRegion="polite" style={s.status}>
-          {voice?.message ?? 'Microfon oprit.'}
-        </Text>
-        {voice?.active ? (
+      {!model?.ready && (
+        <View style={s.card}>
+          <Text style={s.title}>Vocea Mira, pe telefon.</Text>
+          <Text style={s.body}>
+            Un model gratuit de aproximativ 148 MB, descărcat o singură dată.
+            Recunoaște româna local, fără cont, abonament sau trimiterea
+            audio-ului la un server.
+          </Text>
+          <Text accessibilityLiveRegion="polite" style={s.status}>
+            {model?.message ?? 'Descarcă modelul pentru a activa vocea.'}
+            {model?.downloading ? ` · ${model.progress}%` : ''}
+          </Text>
+          {model?.downloading && (
+            <View style={s.progressTrack}>
+              <View style={[s.progressFill, { width: `${model.progress}%` }]} />
+            </View>
+          )}
           <Button
+            title={
+              model?.downloading
+                ? 'Se descarcă…'
+                : 'Descarcă modelul gratuit · 148 MB'
+            }
+            disabled={model?.downloading === true}
+            onPress={() => run(() => companion.voiceModelDownload())}
+          />
+        </View>
+      )}
+      <View style={[s.card, s.voiceHero]}>
+        <View style={s.switchRow}>
+          <View style={s.grow}>
+            <Text style={s.overline}>ASISTENT VOCAL</Text>
+            <Text style={s.title}>
+              {voice?.active
+                ? 'Sunt aici. Te ascult.'
+                : 'Totul începe cu „Mira”.'}
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Activare vocală Mira"
+            value={data.voiceEnabled === true}
+            disabled={!model?.ready}
+            trackColor={{ false: '#344650', true: '#356750' }}
+            thumbColor={data.voiceEnabled ? '#93f4c5' : '#b3c5ce'}
+            onValueChange={enabled => {
+              if (enabled) start(false, true);
+              else run(() => companion.voiceAuto(false));
+            }}
+          />
+        </View>
+        <Eyes
+          compact
+          theme={data.theme}
+          motion={data.motion !== false}
+          expression={voice?.active ? 'excited' : 'happy'}
+        />
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[s.status, voice?.state === 'error' && s.errorStatus]}
+        >
+          {voice?.message ?? 'Activează o dată, apoi spune „Mira”.'}
+        </Text>
+        <Text style={s.body}>
+          Spune „Mira”, apoi comanda. Fără să apeși microfonul de fiecare dată.
+        </Text>
+        <View style={s.commandList}>
+          {['„Pornește focus”', '„Am băut apă”', '„Pornește transcrierea”'].map(
+            text => (
+              <View key={text} style={s.command}>
+                <Text style={s.commandText}>{text}</Text>
+              </View>
+            ),
+          )}
+        </View>
+        {voice?.state === 'dictating' ? (
+          <Button
+            title="Oprește microfonul și salvează"
             danger
-            title="Stop microfon"
             onPress={() => run(() => companion.voiceStop())}
           />
         ) : (
-          <>
-            <Button
-              title="Ascultă «Mira» · 60 secunde"
-              onPress={() => start(false)}
-            />
-            <Button title="Începe transcrierea" onPress={() => start(true)} />
-          </>
+          <Button
+            title="Transcriere nouă"
+            disabled={!model?.ready}
+            onPress={() => start(true)}
+          />
+        )}
+        {!!data.voiceEnabled && !voice?.active && (
+          <Button
+            title="Reia activarea vocală"
+            onPress={() => start(false, true)}
+          />
         )}
         {!!voice?.partial && (
           <Text selectable style={s.partial}>
             {voice.partial.slice(-1800)}
           </Text>
         )}
-        <Text style={s.small}>
-          «Mira, pornește transcrierea» · «Mira gata» oprește fără a include
-          comanda în text. Mai poți cere focus, pauză, continuare sau un pahar
-          de apă. Ascultarea permanentă în fundal nu este activată.
-        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: details }}
+          onPress={() => setDetails(!details)}
+          style={s.detailsButton}
+        >
+          <Text style={s.detailsText}>
+            {details ? 'Ascunde detaliile −' : 'Cum funcționează +'}{' '}
+          </Text>
+        </Pressable>
+        {details && (
+          <Text style={s.small}>
+            Whisper rulează pe telefon și recunoaște româna fără pachetele
+            Google sau Samsung. Activează o dată, apoi spune „Mira” și comanda.
+            Lasă o scurtă pauză după propoziții pentru procesare. Consumă
+            baterie cât timp microfonul este activ; Android poate întrerupe
+            serviciul.{'\n\n'}
+            „Mira gata” salvează transcrierea și revine la ascultare. Oprește
+            complet din comutator sau notificare. Nu păstrăm înregistrări audio;
+            comenzile sunt fixe, fără chatbot. Licențe: Whisper și whisper.cpp,
+            MIT.
+          </Text>
+        )}
       </View>
       <View style={s.card}>
         <Text style={s.title}>Transcrierile tale</Text>
@@ -169,9 +265,8 @@ export function VoicePanel({ data, run }: Props) {
       <View style={s.card}>
         <Text style={s.title}>PC-ul tău, aproape.</Text>
         <Text style={s.body}>
-          Pe desktop, deschide Telefon și pornește primirea. Asocierea
-          autorizează transferul transcrierilor și shortcuturile definite de
-          tine pe PC.
+          Scanează codul din pagina Telefon de pe desktop. Transcrierile și
+          comenzile tale, conectate în siguranță.
         </Text>
         <Text style={s.status}>{peer?.message ?? 'Niciun PC asociat.'}</Text>
         {!peer?.paired ? (
@@ -188,7 +283,7 @@ export function VoicePanel({ data, run }: Props) {
             />
             <View style={s.wrap}>
               <Button
-                title="Scanează QR-ul live"
+                title="Scanează QR"
                 onPress={() =>
                   run(async () => {
                     setCode(await companion.scanPairing());
@@ -196,7 +291,7 @@ export function VoicePanel({ data, run }: Props) {
                 }
               />
               <Button
-                title="Asociază PC-ul"
+                title="Conectează"
                 onPress={() => run(() => companion.pair(code))}
               />
             </View>
@@ -264,37 +359,71 @@ export function VoicePanel({ data, run }: Props) {
           </>
         )}
         <Text style={s.small}>
-          Aceeași rețea locală, PC pornit și primire activă. Android programează
-          transferul automat pe rețele fără tarifare; poate întârzia.
-          Proximitatea fizică singură nu declanșează transferul. Comenzile de
-          taste nu sunt păstrate pentru executare ulterioară când PC-ul este
-          offline.
+          Telefonul și PC-ul trebuie să fie în aceeași rețea, cu primirea
+          activată pe desktop. Transferul automat poate întârzia; comenzile nu
+          se execută când PC-ul este offline.
         </Text>
       </View>
     </>
   );
 }
 const s = StyleSheet.create({
+  disabled: { opacity: 0.45 },
+  progressTrack: {
+    height: 5,
+    backgroundColor: '#24363c',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: { height: 5, backgroundColor: '#93f4c5', borderRadius: 3 },
+  voiceHero: { backgroundColor: '#10272c', borderColor: '#2b4a4e' },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  grow: { flex: 1 },
+  overline: {
+    color: '#8fc4bd',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    marginBottom: 8,
+  },
+  commandList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  commandText: { color: '#c0dedb', fontSize: 12, lineHeight: 18 },
+  command: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#1b383d',
+  },
+  detailsButton: { minHeight: 44, justifyContent: 'center' },
+  detailsText: { color: '#93f4c5', fontSize: 13, fontWeight: '600' },
   card: {
-    padding: 18,
-    borderRadius: 23,
-    backgroundColor: '#141c26',
+    padding: 20,
+    borderRadius: 26,
+    backgroundColor: '#131f29',
     borderWidth: 1,
     borderColor: '#283a49',
     gap: 13,
   },
   title: { color: '#edf5f4', fontSize: 20, fontWeight: '600' },
-  body: { color: '#b3c7d4', fontSize: 13, lineHeight: 21 },
-  small: { color: '#8fa6b9', fontSize: 11, lineHeight: 19 },
+  body: { color: '#b3c7d4', fontSize: 14, lineHeight: 22 },
+  small: { color: '#9bafbd', fontSize: 12, lineHeight: 20 },
   status: { color: '#85efb7', fontSize: 13, lineHeight: 21 },
+  errorStatus: { color: '#ffbd99' },
   button: {
     backgroundColor: '#23394a',
     paddingHorizontal: 15,
     paddingVertical: 13,
     borderRadius: 13,
-    minHeight: 44,
+    minHeight: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  buttonText: { color: '#d3f1e4', fontSize: 12, fontWeight: '600' },
+  buttonText: { color: '#d3f1e4', fontSize: 14, fontWeight: '600' },
   stop: { backgroundColor: '#54303d' },
   input: {
     color: '#eff5f7',

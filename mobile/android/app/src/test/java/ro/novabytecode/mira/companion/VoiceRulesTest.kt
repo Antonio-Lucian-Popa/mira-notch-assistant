@@ -2,6 +2,10 @@ package ro.novabytecode.mira.companion
 import org.junit.Assert.*
 import org.junit.Test
 class VoiceRulesTest {
+    @Test fun romanianAsrAccentOnTheNameStillStopsWithoutSavingTheCommand(){
+        val b=DictationBuffer();assertTrue(b.accept("Ședința s-a încheiat. Miră, gata!"))
+        assertEquals("Ședința s-a încheiat.",b.finish())
+    }
     @Test fun commandsRequireTheWakeBoundaryAndStayWhitelisted(){
         assertEquals("porneste transcrierea",VoiceRules.wake("Hey Mira, pornește transcrierea!"))
         assertEquals("dictate",VoiceRules.command("Pornește transcrierea"))

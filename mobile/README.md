@@ -50,16 +50,19 @@ Unit tests cover local scheduling, input validation, urgency, countdowns and DST
 
 ## Voice & PC — new in 0.2
 
-The native microphone service uses the configured Android speech provider, with
-explicit RECORD_AUDIO permission, a visible foreground notification and Stop.
-“Listen for Mira” is a **60-second command session**, not permanent hotword
-recognition. Say “Mira / Hey Mira” then “pornește transcrierea”; the direct button
-starts dictation immediately. “Mira gata” is stripped even across ASR result chunks.
-Transcription stops after 30 minutes or on unrecoverable provider errors. Confirmed
-text is saved; there is no boot-time / invisible microphone activation, local LLM,
-paid model API, or raw audio archive. Romanian availability and accuracy depend on
-the device/provider; audio may be processed online by that provider. Wake + focus,
-pause/resume/stop and water commands are a finite whitelist.
+The Voice & PC screen uses **local Whisper**, independent of Google/Samsung
+speech providers. Download the free multilingual base model once (about 148 MB),
+then enable **Activare vocală Mira** with microphone permission. Say “Mira”,
+followed by a whitelisted command, together or within 15 seconds. “Mira gata”
+saves dictation and returns to listening; a switch and notification Stop disable
+the microphone. Manual transcription is local too. Dictation is limited to
+30 minutes. No paid API, account or key is involved.
+
+This uses speech-gated CPU inference, not a hardware hotword engine. It has
+recognition latency and consumes battery/memory while enabled. Android can stop
+background capture. Raw audio is bounded in memory and is never archived or
+uploaded. The model download is SHA-256 verified. See [LOCAL_VOICE.md](LOCAL_VOICE.md)
+for model integrity, licensing, build requirements and testing limitations.
 
 Records live in private app files (up to 100); export creates a cached, immutable
 PDF with Unicode text, A4 pagination and a repeating header/footer. Share uses a
@@ -87,9 +90,9 @@ may reserve or ignore a combination. Revoking on the desktop invalidates pairing
 The single-eye camera style uses reported display-cutout geometry with X/Y
 calibration; ordinary capsule remains the fallback. It draws around a lens, never
 on the physical hole. Status/system surfaces can cover app overlays. Verified on
-an emulated punch-hole, not an actual Samsung S26. Speech service start/stop was
-verified on the emulator, while recognition accuracy and live camera QR reading
-still need real microphone/camera testing on a phone.
+an emulated punch-hole, not an actual Samsung S26. The native Whisper backend was checked on a connected Samsung phone with
+offline synthesized Romanian command fixtures and microphone startup; actual
+speaker accuracy and live camera QR reading still need device-specific testing.
 
 See the root README for transport, privacy and test details. Instrumented tests
 should use a disposable emulator: they install the test variant and manage pairing

@@ -73,6 +73,35 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// Pinned MIT sources are fetched once, checksum-verified and kept out of Git.
+def whisperRoot = layout.buildDirectory.dir("third-party/whisper.cpp-1.8.3")
+def prepareWhisper = tasks.register("prepareWhisper") {
+    outputs.dir(whisperRoot)
+    doLast {
+        def archive = layout.buildDirectory.file("third-party/whisper-v1.8.3.tar.gz").get().asFile
+        archive.parentFile.mkdirs()
+        if (!archive.exists()) {
+            new URL("https://codeload.github.com/ggml-org/whisper.cpp/tar.gz/refs/tags/v1.8.3").withInputStream { input ->
+                archive.withOutputStream { output -> output << input }
+            }
+        }
+        def sha = java.security.MessageDigest.getInstance("SHA-256")
+        archive.withInputStream { input ->
+            byte[] buffer = new byte[65536]
+            int size
+            while ((size = input.read(buffer)) != -1) sha.update(buffer, 0, size)
+        }
+        if (sha.digest().encodeHex().toString() != "870ba21409cdf66697dc4db15ebdb13bc67037d76c7cc63756c81471d8f1731a") {
+            archive.delete()
+            throw new GradleException("whisper.cpp source checksum mismatch")
+        }
+        copy { from tarTree(resources.gzip(archive)); into archive.parentFile }
+    }
+}
+tasks.configureEach { task ->
+    if (task.name.startsWith("configureCMake") || task.name == "preBuild") task.dependsOn(prepareWhisper)
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -84,9 +113,13 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake { arguments "-DMIRA_WHISPER_SOURCE=${whisperRoot.get().asFile.absolutePath}" }
+        }
         versionCode 5
         versionName "0.2.3"
     }
+    externalNativeBuild { cmake { path "src/main/jni/CMakeLists.txt" } }
     signingConfigs {
         debug {
             storeFile file('debug.keystore')

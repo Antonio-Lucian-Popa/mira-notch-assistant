@@ -27,7 +27,7 @@ class DictationBuffer {
     private val committed = StringBuilder()
     private var carry = ""
     var stopped = false; private set
-    private val stop = Regex("\\b(?:(?:hey|hei)\\s+)?mira[\\s,.:;!?—-]+gat[aă]\\b[.!?]*", RegexOption.IGNORE_CASE)
+    private val stop = Regex("\\b(?:(?:hey|hei)\\s+)?mir[aă][\\s,.:;!?—-]+gat[aă]\\b[.!?]*", RegexOption.IGNORE_CASE)
     fun accept(text: String): Boolean {
         if (stopped) return true
         val combined = listOf(carry, text.trim()).filter { it.isNotEmpty() }.joinToString(" ")
