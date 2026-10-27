@@ -67,9 +67,10 @@ scoped FileProvider, without broad storage permission. Deleting a phone record
 cannot remove a copy already received by the PC. An interrupted draft remains
 readable; completed sessions are eligible for upload.
 
-On desktop 0.7, open **Telefon**, start receiving and scan/photograph the QR (or paste
-its code) in **Voice & PC**. The camera photo is decoded locally as QR and deleted;
-it is not sent to a model. Pairing verifies the pinned TLS certificate before
+On desktop 0.7, open **Telefon**, start receiving and scan the QR live (or paste
+its code) in **Voice & PC**. The in-app camera preview automatically decodes QR frames locally; no photo
+is taken or saved and frames are not sent to a model. Camera access is requested
+when scanning starts; Back closes the scanner. Pairing verifies the pinned TLS certificate before
 saving the bearer token. It grants PDF uploads and the PC's registered shortcuts.
 Only the same reachable IPv4 LAN is supported; no Bluetooth proximity detector or
 cloud relay. Re-pair after a PC IP change. Unmetered-network WorkManager jobs retry
@@ -87,10 +88,29 @@ The single-eye camera style uses reported display-cutout geometry with X/Y
 calibration; ordinary capsule remains the fallback. It draws around a lens, never
 on the physical hole. Status/system surfaces can cover app overlays. Verified on
 an emulated punch-hole, not an actual Samsung S26. Speech service start/stop was
-verified on the emulator, while recognition accuracy and photo-based QR reading
+verified on the emulator, while recognition accuracy and live camera QR reading
 still need real microphone/camera testing on a phone.
 
 See the root README for transport, privacy and test details. Instrumented tests
 should use a disposable emulator: they install the test variant and manage pairing
 state. Pure rules cover wake boundaries and stop-phrase removal; an instrumented
 round trip rejects a wrong certificate and transfers a real multipage PDF.
+
+### Shake: leave / return
+
+In Voice & PC, enable “Merg la baie” after pairing and starting the Mira
+overlay. On the PC's Phone page, choose “Plecare” and “Revenire” from the saved
+shortcut list (for example CTRL+ALT+2 and CTRL+ALT+1). Three distinct strong
+shakes within 1.2 seconds request the next configured action over pinned TLS.
+The PC persists the mapping and next step, including across receiver restarts.
+Repeated requests with the same ID do not advance the sequence twice. The step
+advances when the PC accepts a request, which does not prove OS execution or
+actual lock state. Use “Resetează la plecare” after manual state changes.
+Revoking/re-pairing rotates credentials while retaining profiles and resetting
+the step to departure. Detection runs with the
+overlay while the phone screen is on, including over other apps. It pauses
+when the screen is off and stops with the overlay. There is a 15 second
+cooldown. Commands are not queued for an offline PC. Disabling the gesture or
+unpairing stops detection. Without a return mapping the departure action is
+repeated. Return sends the configured shortcut; it never bypasses system
+password/biometric authentication. Reserved shortcuts may be rejected by the OS.

@@ -11,6 +11,7 @@ type Bridge = {
   syncNow(): Promise<string>;
   remoteActions(): Promise<string>;
   remoteAction(id: string): Promise<string>;
+  shake(enabled: boolean): Promise<string>;
   scanPairing(): Promise<string>;
   snapshot(): Promise<string>;
   action(action: string, payload: string): Promise<string>;
@@ -47,6 +48,9 @@ export const companion = {
   },
   async remoteActions() {
     return JSON.parse(await bridge.remoteActions());
+  },
+  async shake(enabled: boolean) {
+    await bridge.shake(enabled);
   },
   async remoteAction(id: string) {
     await bridge.remoteAction(id);

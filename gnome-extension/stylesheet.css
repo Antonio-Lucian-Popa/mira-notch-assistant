@@ -121,8 +121,8 @@
 }
 
 .mira-art {
-    width: 66px;
-    height: 66px;
+    width: 48px;
+    height: 48px;
     border-radius: 14px;
     background-color: #26262b;
 }
@@ -633,7 +633,7 @@
 /* Desktop workbench: soft graphite surfaces, mint accents, generous spacing. */
 .mira-notch { background-color: rgba(13, 20, 29, .98); border: 1px solid #2b3b4b; border-radius: 18px; box-shadow: 0 12px 32px 0 rgba(0,0,0,.36); }
 .mira-floating { border-radius: 26px; }
-.mira-open {padding:18px;spacing:14px;}
+.mira-open {padding:12px;spacing:8px;}
 .mira-header {padding-bottom:10px;border-bottom:1px solid #283646;spacing:10px;}
 .mira-work-page {spacing:12px;padding:8px 6px;}
 .mira-work-actions {spacing:8px;}
@@ -654,19 +654,47 @@
 .mira-dot.active {background-color:#85efb7;}
 
 /* Compact top navigation, matching the user's reference. */
-.mira-header {spacing:10px;padding:0 0 12px;border-bottom:1px solid #24262e;}
+.mira-header {spacing:8px;padding:0 0 8px;border-bottom:1px solid #24262e;}
 .mira-header-stamp {min-width:58px;spacing:2px;}
 .mira-header-stamp .mira-time {font-size:16px;text-align:right;}
 .mira-header-stamp .mira-date {font-size:10px;color:#898d9a;text-align:right;}
 .mira-top-tabs {spacing:2px;}
-.mira-top-tab {padding:8px;border-radius:13px;color:#9297a7;}
+.mira-top-tab {padding:5px;border-radius:13px;color:#9297a7;}
 .mira-top-tab:hover {background-color:#23252f;color:#e7ebfa;}
 .mira-top-tab.active {background-color:#202332;color:#7d9cff;}
 .mira-body {spacing:0;}
-.mira-open {padding:14px 18px 9px;}
-.mira-controls {spacing:28px;}
-.mira-music-controls {min-height:120px;padding-top:12px;}
-.mira-ctl-btn {width:58px;height:58px;padding:0;border-radius:30px;background-color:#20212a;color:#e7eafb;}
+.mira-open {padding:10px 14px 6px;}
+.mira-controls {spacing:22px;}
+.mira-music-controls {min-height:80px;padding-top:6px;}
+.mira-ctl-btn {width:42px;height:42px;padding:0;border-radius:30px;background-color:#20212a;color:#e7eafb;}
 .mira-ctl-btn:hover {background-color:#2d3040;}
-.mira-ctl-play {width:82px;height:82px;border-radius:42px;background-color:#5b86ff;color:white;}
+.mira-ctl-play {width:60px;height:60px;border-radius:31px;background-color:#5b86ff;color:white;}
 .mira-ctl-play:hover {background-color:#789bff;}
+
+/* Keep compact navigation inside the panel, including the fixed clock column. */
+.mira-top-tabs {spacing:1px;}
+.mira-top-tab {padding:3px;min-width:0;min-height:0;border-radius:7px;}
+.mira-header-stamp {min-width:60px;}
+.mira-header-stamp .mira-time {font-size:14px;}
+.mira-header-stamp .mira-date {font-size:9px;}
+.mira-ctl-btn {width:32px;height:32px;min-width:0;min-height:0;border-radius:17px;padding:0;}
+.mira-ctl-play {width:44px;height:44px;border-radius:23px;}
+.mira-music-controls {min-height:56px;}
+.mira-reminders {spacing:7px;}
+.mira-reminder-hero {min-width:0;max-width:1000px;padding:0;spacing:10px;}
+.mira-reminder-time {font-size:22px;}
+.mira-reminder-name {max-width:1000px;}
+.mira-reminder-right {spacing:6px;}
+.mira-reminder-form {spacing:7px;}
+.mira-reminder-timing {spacing:7px;}
+.mira-reminder-entry,.mira-reminder-when {padding:7px 9px;font-size:12px;border-radius:8px;}
+.mira-reminder-when {width:70px;}
+.mira-reminder-presets {spacing:4px;}
+.mira-reminder-preset {padding:4px 6px;}
+.mira-reminder-add {padding:7px 10px;border-radius:8px;background-color:#26344d;color:#c4d5ff;font-size:11px;}
+.mira-reminder-add:hover {background-color:#34496a;}
+.mira-reminder-feedback {max-width:1000px;}
+
+.mira-shake-action {spacing:4px;padding:6px 0;}
+.mira-shake-choices {spacing:4px;}
+.mira-shake-choices .mira-work-button {padding:5px 7px;font-size:10px;}

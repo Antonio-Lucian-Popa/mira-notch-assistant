@@ -169,7 +169,7 @@ export class Desktop {
             if (Math.abs(dx)+Math.abs(dy)<6 && !d.moved) return Clutter.EVENT_STOP;
             d.moved=true; this.setMode('pinned');
             if (d.kind==='resize') {
-                this.n._hoverSize={w:Math.max(440,Math.min(960,d.w+dx)),h:Math.max(300,Math.min(760,d.h+dy)),r:26};
+                this.n._hoverSize={w:Math.max(440,Math.min(960,d.w+dx)),h:Math.max(260,Math.min(760,d.h+dy)),r:26};
                 this.n.set_size(this.n._hoverSize.w,this.n._hoverSize.h);
             } else {
                 if (dy>14 && !this.n._open) this.openPage('shelf');
@@ -192,7 +192,7 @@ export class Desktop {
     resizeBy(factor) {
         this.settings.set_double('size-scale',Math.max(.8,Math.min(1.6,this.settings.get_double('size-scale')*factor)));
         this.settings.set_int('workspace-width',Math.round(Math.max(440,Math.min(960,this.settings.get_int('workspace-width')*factor))));
-        this.settings.set_int('workspace-height',Math.round(Math.max(300,Math.min(760,this.settings.get_int('workspace-height')*factor)))); this.n.open();
+        this.settings.set_int('workspace-height',Math.round(Math.max(260,Math.min(760,this.settings.get_int('workspace-height')*factor)))); this.n.open();
     }
     folderUnder(x,y) {
         // Desktop extensions that expose Gio.File/URI delegates can identify an icon.
@@ -271,7 +271,7 @@ export class Desktop {
         bar.add_child(this.button('Revocă asocierea',()=>this.client.workspace('PhoneRevoke',[],()=>this.phoneRender({running:false}))));page.add_child(bar);
         this.phoneInfo=this.label('Asociază telefonul pentru PDF-uri și acțiunile definite aici. Numai aceeași rețea locală.');page.add_child(this.phoneInfo);
         const row=new St.BoxLayout({style_class:'mira-work-actions',y_expand:true});
-        this.qr=new St.DrawingArea();this.qr.set_size(180,180);this.qr.connect('repaint',()=>{
+        this.qr=new St.DrawingArea();this.qr.set_size(160,160);this.qr.connect('repaint',()=>{
             if(!this.qrMatrix)return;const cr=this.qr.get_context();const [w,h]=this.qr.get_surface_size();const size=this.qrMatrix.length;const step=Math.min(w,h)/(size+8);cr.setSourceRGB(1,1,1);cr.paint();cr.setSourceRGB(0,0,0);
             this.qrMatrix.forEach((line,y)=>line.forEach((bit,x)=>{if(bit){cr.rectangle((x+4)*step,(y+4)*step,Math.ceil(step),Math.ceil(step));cr.fill();}}));cr.$dispose();
         });row.add_child(this.qr);
@@ -280,19 +280,34 @@ export class Desktop {
         this.actionName=new St.Entry({hint_text:'Nume: Plec la baie',can_focus:true,style_class:'mira-work-query'});
         this.actionKeys=new St.Entry({hint_text:'CTRL+ALT+2',can_focus:true,style_class:'mira-work-query'});setup.add_child(this.actionName);setup.add_child(this.actionKeys);
         setup.add_child(this.button('Adaugă shortcut',()=>this.client.workspace('PhoneAddAction',[this.actionName.get_text(),this.actionKeys.get_text()],data=>{if(data.error)this.phoneInfo.text=data.error;else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));})));
-        this.phoneList=new St.BoxLayout({vertical:true});const scroll=new St.ScrollView({y_expand:true});scroll.set_child(this.phoneList);setup.add_child(scroll);row.add_child(setup);page.add_child(row);
+        this.phoneList=new St.BoxLayout({vertical:true});setup.add_child(this.phoneList);row.add_child(setup);page.add_child(row);
     }
     phoneRender(data){
         if(!this.alive)return;
         if(data.error){this.phoneInfo.text=data.error;return;}
         this.phoneFolder=data.directory;this.phoneRunning=!!data.running;this.pairCode=data.code;this.qrMatrix=data.qr;this.qr.visible=!!data.running;this.qr.queue_repaint();this.phoneList.destroy_all_children();
         this.phoneInfo.text=data.running?`${data.address} · PDF-urile ajung în ${data.directory}`:'Primire oprită. Asocierea acordă acces la transcrieri și la shortcuturile de mai jos.';
-        for(const action of data.actions??[])this.phoneList.add_child(this.button(`${action.name} · ${action.lock?'blocare PC':action.keys.join('+')}   ×`,()=>this.client.workspace('PhoneRemoveAction',[action.id],()=>this.client.workspace('PhoneState',[],d=>this.phoneRender(d)))));
+        const shake=data.shake??{first:'lock',second:'',next_second:false};
+        const update=(first,second)=>this.client.workspace('PhoneSetShake',[first,second],result=>{if(result.error)this.phoneInfo.text=result.error;else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));});
+        const status=this.label(`Scuturare · urmează ${shake.next_second?'revenirea':'plecarea'} · salvat pe PC`);
+        status.clutter_text.line_wrap=true;this.phoneList.add_child(status);
+        this.phoneList.add_child(this.button('Resetează la plecare',()=>update(shake.first,shake.second)));
+        for(const action of data.actions??[]){
+            const card=new St.BoxLayout({vertical:true,style_class:'mira-shake-action'});
+            const title=this.label(`${action.name} · ${action.lock?'blocare PC':action.keys.join('+')}`);
+            title.clutter_text.ellipsize=3;card.add_child(title);
+            const choices=new St.BoxLayout({style_class:'mira-shake-choices'});
+            choices.add_child(this.button(shake.first===action.id?'✓ Plecare':'Plecare',()=>update(action.id,shake.second)));
+            choices.add_child(this.button(shake.second===action.id?'✓ Revenire':'Revenire',()=>update(shake.first,action.id)));
+            choices.add_child(this.button('×',()=>this.client.workspace('PhoneRemoveAction',[action.id],result=>{if(result.error)this.phoneInfo.text=result.error;else this.client.workspace('PhoneState',[],d=>this.phoneRender(d));})));
+            card.add_child(choices);this.phoneList.add_child(card);
+        }
+        this.phoneList.add_child(this.button('Doar plecare · fără alternare',()=>update(shake.first,'')));
     }
     executeRemote(job){
         if(Date.now()-job.issued_at>10000)return;
         if(job.action.lock){Main.screenShield.lock(true);return;}
-        if(Main.sessionMode.isLocked)return;
+        if(Main.sessionMode.isLocked && job.action.keys.length < 2)return;
         this.virtualKeyboard??=Clutter.get_default_backend().get_default_seat().create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         const special={CTRL:Clutter.KEY_Control_L,ALT:Clutter.KEY_Alt_L,SHIFT:Clutter.KEY_Shift_L,SUPER:Clutter.KEY_Super_L,ENTER:Clutter.KEY_Return,TAB:Clutter.KEY_Tab,SPACE:Clutter.KEY_space,ESC:Clutter.KEY_Escape,DELETE:Clutter.KEY_Delete,BACKSPACE:Clutter.KEY_BackSpace,HOME:Clutter.KEY_Home,END:Clutter.KEY_End,LEFT:Clutter.KEY_Left,RIGHT:Clutter.KEY_Right,UP:Clutter.KEY_Up,DOWN:Clutter.KEY_Down,PAGEUP:Clutter.KEY_Page_Up,PAGEDOWN:Clutter.KEY_Page_Down,PLUS:Clutter.KEY_plus,MINUS:Clutter.KEY_minus};
         const keys=job.action.keys.map(key=>special[key]??(/^F([1-9]|1[0-9]|2[0-4])$/.test(key)?Clutter[`KEY_${key}`]:key.toLowerCase().charCodeAt(0)));

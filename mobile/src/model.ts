@@ -34,6 +34,7 @@ export type Snapshot = {
   focus?: Focus;
   overlayGranted?: boolean;
   overlayRunning?: boolean;
+  shakeEnabled?: boolean;
   notificationsGranted?: boolean;
 };
 export const initialState: Snapshot = {

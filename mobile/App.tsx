@@ -725,7 +725,7 @@ function MiraApp() {
                   />
                 </Card>
                 <Text style={s.footer}>
-                  Mira pentru Android · 0.2.0 preview{'\n'}Fără cont. Fără
+                  Mira pentru Android · 0.2.3 preview{'\n'}Fără cont. Fără
                   telemetrie. În ritmul tău.
                 </Text>
               </>

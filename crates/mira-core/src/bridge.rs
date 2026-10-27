@@ -33,12 +33,29 @@ pub struct RemoteAction {
     pub request_id: String,
     pub action: Action,
 }
+#[derive(Clone, Serialize, Deserialize)]
+struct Shake {
+    first: String,
+    second: String,
+    next_second: bool,
+}
+impl Default for Shake {
+    fn default() -> Self {
+        Self {
+            first: "lock".into(),
+            second: String::new(),
+            next_second: false,
+        }
+    }
+}
 #[derive(Serialize, Deserialize)]
 struct Identity {
     cert: Vec<u8>,
     key: Vec<u8>,
     token: String,
     actions: Vec<Action>,
+    #[serde(default)]
+    shake: Shake,
 }
 #[derive(Serialize)]
 pub struct Pairing {
@@ -48,6 +65,21 @@ pub struct Pairing {
     pub qr: Vec<Vec<bool>>,
     pub actions: Vec<Action>,
     pub directory: String,
+}
+pub fn revoke_pairing(config: &Path) -> Result<()> {
+    if !config.exists() {
+        return Ok(());
+    }
+    let mut identity: Identity = serde_json::from_slice(&fs::read(config)?)?;
+    let generated = rcgen::generate_simple_self_signed(vec!["mira.local".into()])
+        .map_err(|e| Error::other(e.to_string()))?;
+    let mut token = [0u8; 32];
+    getrandom::getrandom(&mut token).map_err(|e| Error::other(e.to_string()))?;
+    identity.cert = generated.cert.der().to_vec();
+    identity.key = generated.signing_key.serialize_der();
+    identity.token = hex(&token);
+    identity.shake.next_second = false;
+    save_private(config, &serde_json::to_vec(&identity)?)
 }
 pub struct Receiver {
     pub pairing: Pairing,
@@ -74,6 +106,7 @@ impl Receiver {
                 cert: generated.cert.der().to_vec(),
                 key: generated.signing_key.serialize_der(),
                 token: hex(&token),
+                shake: Shake::default(),
                 actions: vec![Action {
                     id: "lock".into(),
                     name: "Blochează PC-ul".into(),
@@ -128,6 +161,7 @@ impl Receiver {
         let connections = Arc::new(AtomicUsize::new(0));
         let receipts = Arc::new(Mutex::new(HashSet::<String>::new()));
         let io_lock = Arc::new(Mutex::new(()));
+        let server_config_path = config.clone();
         let accept_thread = thread::spawn(move || {
             while !stopped.load(Ordering::Relaxed) {
                 match listener.accept() {
@@ -147,10 +181,21 @@ impl Receiver {
                         let jobs = queue.clone();
                         let dir = directory.clone();
                         let active = connections.clone();
+                        let config_path = server_config_path.clone();
                         let seen = receipts.clone();
                         let serial = io_lock.clone();
                         thread::spawn(move || {
-                            let _ = serve(socket, cfg, &state, &stop, &jobs, &dir, &seen, &serial);
+                            let _ = serve(
+                                socket,
+                                cfg,
+                                &state,
+                                &stop,
+                                &jobs,
+                                &dir,
+                                &seen,
+                                &serial,
+                                &config_path,
+                            );
                             active.fetch_sub(1, Ordering::Relaxed);
                         });
                     }
@@ -180,6 +225,9 @@ impl Receiver {
                 .actions,
         )
         .unwrap_or_default();
+        value["shake"] =
+            serde_json::to_value(&self.shared.lock().unwrap_or_else(|e| e.into_inner()).shake)
+                .unwrap_or_default();
         value["running"] = true.into();
         value
     }
@@ -206,11 +254,41 @@ impl Receiver {
         });
         save_private(&self.config, &serde_json::to_vec(&*state)?)
     }
+    pub fn set_shake(&self, first: &str, second: &str) -> Result<()> {
+        let mut state = self
+            .shared
+            .lock()
+            .map_err(|_| Error::other("Receiver unavailable"))?;
+        for id in [first, second] {
+            if !id.is_empty() && !state.actions.iter().any(|a| a.id == id) {
+                return Err(Error::other("Alege acțiuni din lista acestui PC."));
+            }
+        }
+        if first.is_empty() {
+            return Err(Error::other("Alege acțiunea de plecare."));
+        }
+        let previous = state.shake.clone();
+        state.shake = Shake {
+            first: first.into(),
+            second: second.into(),
+            next_second: false,
+        };
+        if let Err(error) = save_private(&self.config, &serde_json::to_vec(&*state)?) {
+            state.shake = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
     pub fn remove_action(&self, id: &str) -> Result<()> {
         let mut state = self
             .shared
             .lock()
             .map_err(|_| Error::other("Receiver unavailable"))?;
+        if state.shake.first == id || state.shake.second == id {
+            return Err(Error::other(
+                "Acțiunea este folosită la scuturare. Alege alta înainte de ștergere.",
+            ));
+        }
         state.actions.retain(|a| a.id != id);
         save_private(&self.config, &serde_json::to_vec(&*state)?)
     }
@@ -227,7 +305,10 @@ impl Receiver {
 }
 impl Drop for Receiver {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        {
+            let _state = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+            self.stop.store(true, Ordering::Relaxed);
+        }
         if let Some(thread) = self.accept_thread.take() {
             let _ = thread.join();
         }
@@ -362,6 +443,7 @@ fn serve(
     directory: &Path,
     seen: &Mutex<HashSet<String>>,
     serial: &Mutex<()>,
+    config_path: &Path,
 ) -> Result<()> {
     socket.set_read_timeout(Some(Duration::from_secs(5)))?;
     socket.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -434,13 +516,21 @@ fn serve(
         if seen.contains(&trigger.request_id) {
             return respond(&mut stream, 202, r#"{"queued":true}"#);
         }
-        let action = state
-            .lock()
-            .map_err(|_| Error::other("state"))?
-            .actions
-            .iter()
-            .find(|a| a.id == trigger.action_id)
-            .cloned();
+        let mut identity = state.lock().map_err(|_| Error::other("state"))?;
+        if stop.load(Ordering::Relaxed) {
+            return respond(&mut stream, 503, "{}");
+        }
+        let is_shake = trigger.action_id == "shake";
+        let chosen = if is_shake {
+            if identity.shake.next_second && !identity.shake.second.is_empty() {
+                &identity.shake.second
+            } else {
+                &identity.shake.first
+            }
+        } else {
+            &trigger.action_id
+        };
+        let action = identity.actions.iter().find(|a| &a.id == chosen).cloned();
         let Some(action) = action else {
             return respond(&mut stream, 404, "{}");
         };
@@ -450,6 +540,14 @@ fn serve(
         }
         if seen.len() >= 4096 {
             return respond(&mut stream, 429, "{}");
+        }
+        if is_shake {
+            let previous = identity.shake.next_second;
+            identity.shake.next_second = !previous && !identity.shake.second.is_empty();
+            if save_private(config_path, &serde_json::to_vec(&*identity)?).is_err() {
+                identity.shake.next_second = previous;
+                return respond(&mut stream, 503, "{}");
+            }
         }
         seen.insert(trigger.request_id.clone());
         queue.push_back(RemoteAction {
@@ -579,6 +677,52 @@ mod tls_integration {
         let mut response = String::new();
         let _ = stream.read_to_string(&mut response);
         response
+    }
+    #[test]
+    #[ignore = "Local TLS sockets; run explicitly with network sandbox permission"]
+    fn shake_profiles_persist_and_alternate_without_duplicate_steps() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("pair.json");
+        let inbox = dir.path().join("inbox");
+        let receiver = Receiver::start(config.clone(), inbox.clone(), "127.0.0.1:0").unwrap();
+        receiver.add_action("Plecare", "CTRL+ALT+2").unwrap();
+        receiver.add_action("Revenire", "CTRL+ALT+1").unwrap();
+        let snapshot = receiver.snapshot();
+        let first = snapshot["actions"][1]["id"].as_str().unwrap();
+        let second = snapshot["actions"][2]["id"].as_str().unwrap();
+        receiver.set_shake(first, second).unwrap();
+        assert!(receiver.set_shake("unknown", second).is_err());
+        assert!(receiver.remove_action(first).is_err());
+        let token = receiver.shared.lock().unwrap().token.clone();
+        let trigger = r#"{"request_id":"shake-one","action_id":"shake"}"#;
+        for _ in 0..2 {
+            assert!(
+                call(&receiver, &token, "POST", "/v1/actions", trigger).starts_with("HTTP/1.1 202")
+            );
+        }
+        let jobs = receiver.drain();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].action.keys, ["CTRL", "ALT", "2"]);
+        drop(receiver);
+        let receiver = Receiver::start(config.clone(), inbox.clone(), "127.0.0.1:0").unwrap();
+        assert_eq!(receiver.snapshot()["shake"]["next_second"], true);
+        assert!(call(
+            &receiver,
+            &token,
+            "POST",
+            "/v1/actions",
+            r#"{"request_id":"shake-two","action_id":"shake"}"#
+        )
+        .starts_with("HTTP/1.1 202"));
+        assert_eq!(receiver.drain()[0].action.keys, ["CTRL", "ALT", "1"]);
+        assert_eq!(receiver.snapshot()["shake"]["next_second"], false);
+        drop(receiver);
+        revoke_pairing(&config).unwrap();
+        let receiver = Receiver::start(config, inbox, "127.0.0.1:0").unwrap();
+        assert_eq!(receiver.snapshot()["shake"]["first"], first);
+        assert_eq!(receiver.snapshot()["shake"]["second"], second);
+        assert_eq!(receiver.snapshot()["actions"].as_array().unwrap().len(), 3);
+        assert!(call(&receiver, &token, "GET", "/v1/actions", "").starts_with("HTTP/1.1 401"));
     }
     #[test]
     #[ignore = "Local TLS sockets; run explicitly with network sandbox permission"]

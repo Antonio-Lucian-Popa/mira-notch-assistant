@@ -41,7 +41,8 @@ impl WorkspaceIface {
         let (config, _) =
             mira_core::bridge::paths().map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         if config.exists() {
-            std::fs::remove_file(config).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+            mira_core::bridge::revoke_pairing(&config)
+                .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         }
         Ok(())
     }
@@ -66,6 +67,13 @@ impl WorkspaceIface {
         r.as_ref()
             .ok_or_else(|| zbus::fdo::Error::Failed("Pornește primirea mai întâi.".into()))?
             .add_action(&name, &keys)
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    }
+    async fn phone_set_shake(&self, first: String, second: String) -> zbus::fdo::Result<()> {
+        let r = self.receiver.lock().await;
+        r.as_ref()
+            .ok_or_else(|| zbus::fdo::Error::Failed("Pornește primirea mai întâi.".into()))?
+            .set_shake(&first, &second)
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
     async fn phone_remove_action(&self, id: String) -> zbus::fdo::Result<()> {

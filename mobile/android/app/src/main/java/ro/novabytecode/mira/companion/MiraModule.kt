@@ -19,6 +19,7 @@ class MiraModule(private val context: ReactApplicationContext) : ReactContextBas
     @ReactMethod fun snapshot(promise: Promise) = result(promise) {
         MiraStore(context).snapshot().put("overlayGranted", Settings.canDrawOverlays(context))
             .put("overlayRunning", MiraOverlayService.running())
+            .put("shakeEnabled", context.getSharedPreferences("mira.shake", android.content.Context.MODE_PRIVATE).getBoolean("enabled", false))
             .put("voice",MiraVoiceService.snapshot()).put("transcripts",TranscriptStore(context).list()).put("peer",TranscriptSync.status(context))
             .put("notificationsGranted", context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()).toString()
     }
@@ -53,9 +54,19 @@ class MiraModule(private val context: ReactApplicationContext) : ReactContextBas
         "{}"
     }
     @ReactMethod fun pair(code:String,promise:Promise)=background(promise){TranscriptSync.pair(context,code);"{}"}
-    @ReactMethod fun unpair(promise:Promise)=background(promise){TranscriptSync.disconnect(context);"{}"}
+    @ReactMethod fun unpair(promise:Promise)=background(promise){context.getSharedPreferences("mira.shake", android.content.Context.MODE_PRIVATE).edit().putBoolean("enabled",false).apply();TranscriptSync.disconnect(context);MiraOverlayService.refresh();"{}"}
     @ReactMethod fun syncNow(promise:Promise)=background(promise){check(TranscriptSync.upload(context)){TranscriptSync.status(context).optString("message")};"{}"}
     @ReactMethod fun remoteActions(promise:Promise)=background(promise){TranscriptSync.actions(context).toString()}
+    @ReactMethod fun shake(enabled:Boolean,promise:Promise)=result(promise){
+        if(enabled){
+            require(TranscriptSync.status(context).optBoolean("paired")){"Asociază mai întâi PC-ul."}
+            require(MiraOverlayService.running()){"Pornește mai întâi capsula Mira."}
+            require(context.getSystemService(android.hardware.SensorManager::class.java).getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)!=null){"Telefonul nu are accelerometru disponibil."}
+        }
+        context.getSharedPreferences("mira.shake", android.content.Context.MODE_PRIVATE).edit().putBoolean("enabled",enabled).apply()
+        MiraOverlayService.refresh()
+        "{}"
+    }
     @ReactMethod fun remoteAction(id:String,promise:Promise)=background(promise){TranscriptSync.trigger(context,id);"{}"}
     @ReactMethod fun overlayPermission(promise: Promise) = result(promise) {
         context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
