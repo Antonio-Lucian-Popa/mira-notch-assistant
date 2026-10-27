@@ -280,3 +280,37 @@ details p { color: var(--dim); margin: 0 0 14px; }
   * { animation: none !important; scroll-behavior: auto; }
   .reveal { opacity: 1; transform: none; }
 }
+
+/* Reminders and daily rhythm previews */
+.ic-reminders, .ic-routine { background: rgba(255,182,92,.12); color: #ffb65c; }
+.m-reminders { display:grid; grid-template-columns:1fr 1.25fr; gap:28px; padding:20px 4px; align-items:center; }
+.reminder-count { font-size:42px; line-height:1.3; font-weight:700; font-variant-numeric:tabular-nums; color:#8fb0ff; }
+.m-reminders .m-bar { margin-top:12px; }
+.reminder-demo-right p { font-size:12px; color:var(--dim); }
+.demo-eyes { display:flex; gap:14px; align-items:center; min-height:32px; }
+.demo-eyes i { display:block; width:13px; height:17px; border-radius:8px; background:#8fb0ff; box-shadow:0 0 12px #8fb0ff66; }
+[data-urgency="soon"] .reminder-count { color:#ffb65c; }
+[data-urgency="soon"] .demo-eyes i { background:#ffb65c; animation:anticipate 3s ease-in-out infinite; }
+[data-urgency="urgent"] .reminder-count, [data-urgency="due"] .reminder-count { color:#ff7878; }
+[data-urgency="urgent"] .demo-eyes i, [data-urgency="due"] .demo-eyes i { background:#ff7878; animation:restless 1s ease-in-out infinite; }
+[data-urgency="due"] .reminder-count { animation:reminderPulse 1.5s ease-in-out infinite; }
+button.pill { color:inherit; cursor:pointer; font:inherit; font-size:11px; }
+.pill:focus-visible, .tab:focus-visible { outline:2px solid #ffb65c; outline-offset:3px; }
+.illustration-note, .m-lyrics small { font-size:11px; color:var(--dim); margin:8px 0 0; }
+.m-lyrics { padding:12px 0; text-align:center; }
+.lookup-example { display:flex; gap:8px; justify-content:center; margin:12px 0; }
+.lookup-example span { padding:8px 14px; border-radius:9px; background:var(--pill, #1c1c22); color:var(--dim); }
+.routine-showcase { max-width:760px; margin:auto; }
+.routine-options { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-bottom:24px; }
+.routine-options .is-active { border-color:#ffb65c; color:#ffce91; }
+.routine-banner { display:flex; gap:24px; align-items:center; padding:28px; border-radius:24px; background:#0a0a0b; border:1px solid #30303c; min-height:130px; box-shadow:0 15px 50px #0005; }
+.routine-banner h3 { margin:0 0 8px; }
+.routine-banner p { margin:0; color:var(--dim); }
+.routine-showcase > .illustration-note { text-align:center; }
+#routineEyes.celebrate i { animation:anticipate 1.2s ease-in-out 2; background:#ffce91; }
+#bigEyes.blinking i { scale:1 .12; }
+@keyframes anticipate { 0%,40%,100%{transform:translateY(0)} 15%,25%{transform:translateY(-3px) scaleY(1.1)} }
+@keyframes restless { 0%,50%,100%{transform:translate(0)} 10%,30%{transform:translate(-2px,-2px) scaleY(1.2)} 20%,40%{transform:translate(2px,-1px)} }
+@keyframes reminderPulse { 50%{opacity:.55} }
+@media(max-width:560px) { .tabs { flex-wrap:wrap; } .m-reminders{grid-template-columns:1fr;gap:14px} .routine-banner{padding:20px;gap:15px} }
+@media(prefers-reduced-motion:reduce) { .demo-eyes i,.reminder-count {animation:none!important} }

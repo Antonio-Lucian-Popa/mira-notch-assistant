@@ -18,3 +18,6 @@ tracing = "0.1"
 [target.'cfg(target_os = "linux")'.dependencies]
 # tokio runtime only (no async-io); `proxy` brings the #[zbus::proxy] macro.
 zbus = { version = "6", default-features = false, features = ["tokio", "proxy"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+zbus = { version = "6", default-features = false, features = ["tokio", "proxy", "service"] }

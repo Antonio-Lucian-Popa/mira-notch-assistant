@@ -68,6 +68,15 @@
       <description>The name used in the daily greeting. Leave empty for a greeting without a name.</description>
     </key>
 
+    <key name="lunch-enabled" type="b"><default>false</default><summary>Lunch greeting enabled</summary></key>
+    <key name="lunch-time" type="s"><default>'13:00'</default><summary>Local lunch time (HH:MM)</summary></key>
+    <key name="work-end-enabled" type="b"><default>false</default><summary>End of work greetings enabled</summary></key>
+    <key name="work-end-time" type="s"><default>'18:00'</default><summary>Local end of work time (HH:MM)</summary></key>
+    <key name="work-end-lead-minutes" type="i"><range min="0" max="60"/><default>5</default><summary>Minutes before end of work to give a heads-up</summary></key>
+    <key name="routine-weekdays-only" type="b"><default>true</default><summary>Lunch and work greetings only Monday to Friday</summary></key>
+    <key name="routine-delivered" type="a{ss}"><default>{}</default><summary>Last local date and schedule delivered per routine</summary></key>
+    <key name="routine-preview" type="s"><default>''</default><summary>Preview routine event</summary></key>
+
     <key name="eye-style" type="s">
       <default>'auto'</default>
       <summary>Eye animation style</summary>

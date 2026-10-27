@@ -60,6 +60,7 @@ with tempfile.TemporaryDirectory(prefix='mira-reminders-') as tmp:
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     daemon = start(env)
     try:
+        assert call('Lookup', 'ss', '', '', iface=NAME + '.Lyrics', check=False) != 0
         task = call('Add', 's', 'Independent task', iface=NAME + '.Todo')
         assert call('Add', 'sx', '', int(time.time()) + 60, check=False) != 0
         id = call('Add', 'sx', 'Call Mom', int(time.time()) + 2)

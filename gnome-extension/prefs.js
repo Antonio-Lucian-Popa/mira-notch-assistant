@@ -8,6 +8,8 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
+import {validTime} from './lib/routines.js';
+
 const BUS_NAME = 'ro.novabytecode.Mira';
 const OBJECT_PATH = '/ro/novabytecode/Mira';
 const SERVICE_IFACE = 'ro.novabytecode.Mira.Service';
@@ -92,6 +94,38 @@ export default class MiraPreferences extends ExtensionPreferences {
         eyeRow.connect('notify::selected', row => settings.set_string('eye-style', eyeMap[row.selected]));
         group.add(eyeRow);
 
+        const routineGroup = new Adw.PreferencesGroup({title: _('Prânz și sfârșitul programului'), description: _('Ore locale, cu mesaje animate. Păstrează ultimele notificări chiar și după reconectare.')});
+        page.add(routineGroup);
+        for (const [key, title] of [['lunch-enabled', 'Anunță-mă la prânz'], ['work-end-enabled', 'Salută-mă la finalul programului'], ['routine-weekdays-only', 'Doar luni–vineri']]) {
+            const row = new Adw.SwitchRow({title});
+            settings.bind(key, row, 'active', Gio.SettingsBindFlags.DEFAULT);
+            routineGroup.add(row);
+        }
+        for (const [key, title] of [['lunch-time', 'Ora prânzului (HH:MM)'], ['work-end-time', 'Termin munca la (HH:MM)']]) {
+            const row = new Adw.EntryRow({title});
+            row.text = settings.get_string(key);
+            row.connect('changed', entry => {
+                const valid = validTime(entry.text);
+                entry[valid ? 'remove_css_class' : 'add_css_class']('error');
+                if (valid) settings.set_string(key, valid);
+            });
+            routineGroup.add(row);
+        }
+        const lead = new Adw.SpinRow({title: _('Anunță-mă cu câte minute înainte de final'), adjustment: new Gtk.Adjustment({lower: 0, upper: 60, step_increment: 1}), digits: 0});
+        settings.bind('work-end-lead-minutes', lead, 'value', Gio.SettingsBindFlags.DEFAULT);
+        routineGroup.add(lead);
+        const previews = new Adw.ActionRow({title: _('Previzualizează animațiile')});
+        for (const [type, label] of [['lunch', 'Prânz 🍽'], ['work-soon', 'În curând'], ['work-end', 'La revedere 👋']]) {
+            const button = new Gtk.Button({label, valign: Gtk.Align.CENTER});
+            button.connect('clicked', () => settings.set_string('routine-preview', `${type}:${Date.now()}`));
+            previews.add_suffix(button);
+        }
+        routineGroup.add(previews);
+
+        const browserGroup = new Adw.PreferencesGroup({title: _('Muzică din browser'), description: _('Mira urmărește toate playerele MPRIS, inclusiv Brave, Chrome și Firefox.')});
+        browserGroup.add(new Adw.ActionRow({title: _('Sesiuni private / Incognito'), subtitle: _('Browserul poate ascunde titlul și artistul. În pagina Lyrics poți introduce manual melodia pentru căutare pe LRCLIB.')}));
+        page.add(browserGroup);
+
         // --- Greeting ---
         const greetGroup = new Adw.PreferencesGroup({
             title: _('Daily greeting'),
@@ -114,8 +148,9 @@ export default class MiraPreferences extends ExtensionPreferences {
         timeRow.text = settings.get_string('greeting-time');
         timeRow.connect('changed', row => {
             const t = row.text.trim();
-            if (/^\d{1,2}:\d{2}$/.test(t))
-                settings.set_string('greeting-time', t);
+            const valid = validTime(t);
+            if (valid) settings.set_string('greeting-time', valid);
+            row[valid ? 'remove_css_class' : 'add_css_class']('error');
         });
         greetGroup.add(timeRow);
 

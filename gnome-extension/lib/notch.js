@@ -21,6 +21,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
 import {gazeOffset} from './gaze.js';
 import {reminderState, parseWhen} from './reminders.js';
+import {routineEvents, validTime} from './routines.js';
 
 const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo'];
 
@@ -104,6 +105,8 @@ class Notch extends St.Bin {
         this._reminderAlive = true;
         this._reminderUrgency = 'calm';
         this._reminderSubmitting = false;
+        this._routineQueue = [];
+        this._eyeAnimTimers = new Set();
 
         // Mascot eyes.
         this._eyeLifeTimer = 0;
@@ -210,7 +213,16 @@ class Notch extends St.Bin {
         this._greetEyes = this._buildEyes('mira-greet-eyes');
         this._greetLabel = new St.Label({style_class: 'mira-greet-label', y_align: Clutter.ActorAlign.CENTER});
         this._greetBox.add_child(this._greetEyes);
-        this._greetBox.add_child(this._greetLabel);
+        const greetText = new St.BoxLayout({vertical: true, y_align: Clutter.ActorAlign.CENTER});
+        greetText.add_child(this._greetLabel);
+        this._routineDetail = new St.Label({style_class: 'mira-routine-detail'});
+        this._routineDetail.clutter_text.single_line_mode = false;
+        this._routineDetail.clutter_text.line_wrap = true;
+        this._routineDetail.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+        this._routineDetail.set_width(390);
+        this._routineDetail.hide();
+        greetText.add_child(this._routineDetail);
+        this._greetBox.add_child(greetText);
         this._greetBox.hide();
 
         this._stack.add_child(this._closedBox);
@@ -378,6 +390,20 @@ class Notch extends St.Bin {
             y_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
+        const search = new St.BoxLayout({style_class: 'mira-lyrics-search'});
+        this._lyricsTitleInput = new St.Entry({hint_text: 'Titlu melodie', can_focus: true, x_expand: true, style_class: 'mira-reminder-entry'});
+        this._lyricsArtistInput = new St.Entry({hint_text: 'Artist', can_focus: true, x_expand: true, style_class: 'mira-reminder-entry'});
+        const lookup = () => this._lookupLyrics();
+        this._lyricsSearchButton = this._iconButton('system-search-symbolic', lookup);
+        this._lyricsSearchButton.accessible_name = 'Caută versuri după titlu și artist';
+        for (const entry of [this._lyricsTitleInput, this._lyricsArtistInput]) {
+            entry.clutter_text.set_max_length(200);
+            entry.clutter_text.connect('activate', lookup);
+        }
+        search.add_child(this._lyricsTitleInput); search.add_child(this._lyricsArtistInput); search.add_child(this._lyricsSearchButton);
+        this._lyricsSearchStatus = new St.Label({style_class: 'mira-lyrics-search-status', text: 'Căutare manuală pentru metadata lipsă / sesiuni private'});
+        this._lyricsSearchStatus.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        page.add_child(search); page.add_child(this._lyricsSearchStatus);
         this._lyricLabels = [];
         for (let i = 0; i < 3; i++) {
             const btn = new St.Button({style_class: 'mira-lyric-line', x_align: Clutter.ActorAlign.CENTER});
@@ -388,6 +414,16 @@ class Notch extends St.Bin {
             this._lyricLabels.push(btn);
             page.add_child(btn);
         }
+        this._plainLyrics = new St.Label({style_class: 'mira-plain-lyrics', x_expand: true});
+        this._plainLyrics.clutter_text.single_line_mode = false;
+        this._plainLyrics.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        this._plainLyrics.clutter_text.line_wrap = true;
+        this._plainLyricsScroll = new St.ScrollView({x_expand: true, y_expand: true, hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
+        const plainBox = new St.BoxLayout({vertical: true, x_expand: true});
+        plainBox.add_child(this._plainLyrics);
+        this._plainLyricsScroll.set_child(plainBox);
+        this._plainLyricsScroll.hide();
+        page.add_child(this._plainLyricsScroll);
         this._lyricsPage = page;
         this._pageArea.add_child(page);
     }
@@ -1086,6 +1122,7 @@ class Notch extends St.Bin {
                 this._closedBox.show();
                 this._updateClosedVisual();
                 this._armIdle();
+                this._drainRoutines();
             }
         });
     }
@@ -1178,7 +1215,7 @@ class Notch extends St.Bin {
 
     _onKey(ev) {
         const focus = global.stage.get_key_focus();
-        if (focus && [this._reminderTitleEntry, this._reminderWhenEntry, this._todoEntry].some(entry => entry?.contains(focus)))
+        if (focus && [this._reminderTitleEntry, this._reminderWhenEntry, this._todoEntry, this._lyricsTitleInput, this._lyricsArtistInput].some(entry => entry?.contains(focus)))
             return Clutter.EVENT_PROPAGATE;
         const sym = ev.get_key_symbol();
         const state = ev.get_state();
@@ -1236,8 +1273,9 @@ class Notch extends St.Bin {
         const hasTrack = m.title !== '' || m.artist !== '';
 
         if (this._title) {
-            this._title.text = m.title || '—';
-            this._artist.text = m.artist || '';
+            const hidden = /^(a site is playing media|media is playing|un site redă (conținut )?media)$/i.test(m.title ?? '');
+            this._title.text = hidden ? 'Sesiune privată · titlu ascuns' : (m.title || 'Nicio melodie detectată');
+            this._artist.text = hidden ? 'Introdu titlul și artistul în pagina Lyrics' : (m.artist || '');
             this._btnPlay.get_child().icon_name = playing
                 ? 'media-playback-pause-symbolic'
                 : 'media-playback-start-symbolic';
@@ -1383,16 +1421,46 @@ class Notch extends St.Bin {
 
     refreshPower() {}
 
+    _lookupLyrics() {
+        if (this._lyricsLookingUp)
+            return;
+        const title = this._lyricsTitleInput.get_text().trim();
+        const artist = this._lyricsArtistInput.get_text().trim();
+        if (!title) { this._lyricsSearchStatus.text = 'Introdu titlul melodiei'; return; }
+        this._lyricsLookingUp = true;
+        this._lyricsSearchButton.reactive = false;
+        this._lyricsSearchStatus.text = 'Caut versurile pe LRCLIB…';
+        const complete = text => {
+            if (!this._reminderAlive)
+                return;
+            this._lyricsLookingUp = false;
+            this._lyricsSearchButton.reactive = true;
+            this._lyricsSearchStatus.text = text;
+            this._refreshLyrics();
+        };
+        this._client.lookupLyrics(title, artist, found => complete(found ? `Manual: ${artist ? artist + ' — ' : ''}${title}` : 'Nu am găsit versuri. Verifică titlul și artistul.'),
+            () => complete('Căutarea a eșuat. Verifică internetul și daemonul.'));
+    }
+
     _refreshLyrics() {
         if (PAGES[this._page] !== 'lyrics' && !this._open)
             return;
+        const fetch = this._lyricsFetch = (this._lyricsFetch ?? 0) + 1;
         this._client.getLines(lines => {
+            if (!this._reminderAlive || fetch !== this._lyricsFetch)
+                return;
             this._lines = lines;
             this._renderLyrics();
         });
     }
 
     onLyricsChanged() {
+        if (!this._lyricsLookingUp && this._lyricsSearchStatus) {
+            const meta = this._client.lyricsMeta();
+            this._lyricsSearchStatus.text = meta.manualQuery
+                ? `${meta.available ? 'Manual' : 'Fără rezultate'}: ${meta.manualQuery}`
+                : 'Căutare manuală pentru metadata lipsă / sesiuni private';
+        }
         this._activeLine = -1;
         this._refreshLyrics();
     }
@@ -1405,7 +1473,14 @@ class Notch extends St.Bin {
     _renderLyrics() {
         if (!this._lyricLabels)
             return;
-        const cur = this._activeLine;
+        const plain = this._lines.length > 0 && this._client.lyricsMeta?.().synced === false;
+        this._plainLyricsScroll.visible = plain;
+        this._lyricLabels.forEach(btn => { btn.visible = !plain; });
+        if (plain) {
+            this._plainLyrics.text = this._lines.map(line => line[1]).join('\n');
+            return;
+        }
+        const cur = Math.max(0, this._activeLine);
         const rows = [cur - 1, cur, cur + 1];
         const placeholder = this._lyricsPlaceholder();
         this._lyricLabels.forEach((btn, i) => {
@@ -1426,6 +1501,8 @@ class Notch extends St.Bin {
         const m = this._media || {};
         const hasTrack = (m.title && m.title !== '') || (m.artist && m.artist !== '');
         const meta = this._client.lyricsMeta ? this._client.lyricsMeta() : {};
+        if (/^(a site is playing media|media is playing|un site redă (conținut )?media)$/i.test(m.title ?? ''))
+            return 'Titlu ascuns de browser · caută manual mai sus';
         if (!hasTrack)
             return '♪  nothing playing';
         if (meta && meta.available === false)
@@ -1440,6 +1517,10 @@ class Notch extends St.Bin {
 
     // --- alerts ---
     showAlert(type, arg) {
+        this._open = false;
+        this._stopHeaderViz();
+        this._stopProgress();
+        this._clearGreetSeq();
         const map = {
             'charger-connected': ['battery-full-charging-symbolic', `⚡ ${Math.round(arg)}%`],
             'charger-disconnected': ['battery-symbolic', `🔋 ${Math.round(arg)}%`],
@@ -1468,11 +1549,76 @@ class Notch extends St.Bin {
                 this._updateClosedVisual();
                 this._animateTo(this._closed, this._tokens.motion.alertOut.durationMs, Clutter.AnimationMode.EASE_OUT_QUAD);
                 this._armIdle();
+                this._drainRoutines();
             } else {
                 this.open();
             }
             return GLib.SOURCE_REMOVE;
         });
+    }
+
+    // Daily routines use wall-clock deadlines and persisted delivery markers.
+    _tickRoutines() {
+        if (!this._routineQueue || !this._greetLabel) return;
+        const s = this._settings;
+        const events = routineEvents({lunchEnabled: s.get_boolean('lunch-enabled'), lunchTime: s.get_string('lunch-time'),
+            workEndEnabled: s.get_boolean('work-end-enabled'), workEndTime: s.get_string('work-end-time'),
+            leadMinutes: s.get_int('work-end-lead-minutes'), weekdaysOnly: s.get_boolean('routine-weekdays-only')}, new Date(), s.get_value('routine-delivered').deepUnpack());
+        if (events.length) {
+            const delivered = s.get_value('routine-delivered').deepUnpack();
+            for (const event of events) {
+                delivered[event.type] = event.key;
+                this._routineQueue.push(event.type);
+                const [title, message] = this._routineMessage(event.type);
+                Main.notify(title, message);
+            }
+            s.set_value('routine-delivered', new GLib.Variant('a{ss}', delivered));
+        }
+        this._drainRoutines();
+    }
+
+    _routineMessage(type) {
+        const name = this._settings.get_string('greeting-name').trim();
+        const suffix = name ? `, ${name}` : '';
+        return {
+            lunch: ['Poftă bună! 🍽', `E timpul pentru pauza de prânz${suffix}. Ai grijă de tine!`],
+            'work-soon': ['Mai e puțin ✨', `Programul se termină la ${this._settings.get_string('work-end-time')}. Încheie în ritmul tău${suffix}.`],
+            'work-end': ['Pe mâine! 👋', `Ai încheiat programul${suffix}. Mulțumesc pentru azi — bucură-te de timpul tău!`],
+        }[type] ?? ['Mira', ''];
+    }
+
+    _drainRoutines() {
+        if (this._routineQueue.length && !this._open && !this._alertTimer && this.mapped)
+            this.showRoutine(this._routineQueue.shift());
+    }
+
+    showRoutine(type) {
+        if (!['lunch', 'work-soon', 'work-end'].includes(type))
+            return;
+        // Reuse the greeting lifecycle so every timeout and transition is
+        // cancelled on replacement or extension disable.
+        this.showGreeting(false);
+        const [title, message] = this._routineMessage(type);
+        this._greetLabel.text = title;
+        this._routineDetail.text = message;
+        this._routineDetail.show();
+        this._greetLabel.style_class = 'mira-greet-label mira-routine-label';
+        this._greetLabel.clutter_text.single_line_mode = false;
+        this._greetLabel.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        this._greetLabel.clutter_text.line_wrap = true;
+        this._animateTo({w: Math.max(this._greetSize.w, 540), h: 90, r: this._greetSize.r}, 420, Clutter.AnimationMode.EASE_OUT_BACK);
+        this._clearGreetSeq();
+        this._wakeEyeActors(this._greetEyes._eyes);
+        this._eyeAnim(this._greetEyes._eyes, type === 'work-soon' ? 'surprised' : 'squintHappy');
+        this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 700, () => {
+            this._eyeAnim(this._greetEyes._eyes, type === 'lunch' ? 'hearts' : 'wink');
+            if (type === 'work-end') this._spawnParticles('confetti', 22);
+            return GLib.SOURCE_REMOVE;
+        }));
+        this._greetSeqTimers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1800, () => {
+            this._eyeAnim(this._greetEyes._eyes, 'squintHappy');
+            return GLib.SOURCE_REMOVE;
+        }));
     }
 
     // --- greeting ---
@@ -1484,9 +1630,9 @@ class Notch extends St.Bin {
         if (!this._settings.get_boolean('greeting-enabled'))
             return;
         const spec = this._settings.get_string('greeting-time') || '08:20';
-        const [hh, mm] = spec.split(':').map(x => parseInt(x, 10));
+        const [hh, mm] = (validTime(spec) ?? '08:20').split(':').map(Number);
         const now = GLib.DateTime.new_now_local();
-        let target = GLib.DateTime.new_local(now.get_year(), now.get_month(), now.get_day_of_month(), hh || 8, mm || 20, 0);
+        let target = GLib.DateTime.new_local(now.get_year(), now.get_month(), now.get_day_of_month(), hh, mm, 0);
         if (target.difference(now) <= 0)
             target = target.add_days(1);
         const secs = Math.max(1, Math.round(target.difference(now) / 1e6));
@@ -1508,6 +1654,14 @@ class Notch extends St.Bin {
     }
 
     showGreeting(birthday = false) {
+        this._routineDetail.hide();
+        this._open = false;
+        this._stopHeaderViz();
+        this._stopProgress();
+        this._greetLabel.style_class = 'mira-greet-label';
+        this._greetLabel.clutter_text.single_line_mode = true;
+        this._greetLabel.clutter_text.line_wrap = false;
+        this._greetLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         // Name is optional; with none set the greeting simply omits it.
         const name = (this._settings.get_string('greeting-name') || '').trim();
         const suffix = name ? `, ${name}` : '';
@@ -1581,6 +1735,7 @@ class Notch extends St.Bin {
                 this._updateClosedVisual();
                 this._animateTo(this._closed, this._tokens.motion.alertOut.durationMs, Clutter.AnimationMode.EASE_OUT_QUAD);
                 this._armIdle();
+                this._drainRoutines();
             } else {
                 this.open();
             }
@@ -1612,6 +1767,7 @@ class Notch extends St.Bin {
     }
 
     _updateClock() {
+        this._tickRoutines();
         const now = GLib.DateTime.new_now_local();
         this._clock.text = now.format('%H:%M');
         if (this._date && this._open) {
@@ -1810,6 +1966,16 @@ class Notch extends St.Bin {
         });
     }
 
+    _eyeTimeout(delay, callback) {
+        const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+            this._eyeAnimTimers.delete(id);
+            if (this._reminderAlive) callback();
+            return GLib.SOURCE_REMOVE;
+        });
+        this._eyeAnimTimers.add(id);
+        return id;
+    }
+
     // The animation library. Each case animates the pair of eye actors.
     _eyeAnim(eyes, name) {
         if (!eyes || eyes.length < 2)
@@ -1822,7 +1988,7 @@ class Notch extends St.Bin {
             break;
         case 'doubleBlink':
             this._blinkEyes(eyes);
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 220, () => {
+            this._eyeTimeout(220, () => {
                 this._blinkEyes(eyes);
                 return GLib.SOURCE_REMOVE;
             });
@@ -1835,7 +2001,7 @@ class Notch extends St.Bin {
             break;
         case 'lookAround':
             this._glanceEyes(eyes, -4);
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 560, () => {
+            this._eyeTimeout(560, () => {
                 this._glanceEyes(eyes, 4);
                 return GLib.SOURCE_REMOVE;
             });
@@ -1849,7 +2015,7 @@ class Notch extends St.Bin {
             for (const e of eyes) {
                 e.add_style_class_name('happy');
                 e.ease({height: Math.max(3, base - 5), duration: 180, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                    onComplete: () => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 520, () => {
+                    onComplete: () => this._eyeTimeout(520, () => {
                         e.remove_style_class_name('happy');
                         e.ease({height: base, duration: 220, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
                         return GLib.SOURCE_REMOVE;
@@ -1874,7 +2040,7 @@ class Notch extends St.Bin {
         case 'sleepy':
             for (const e of eyes) {
                 e.ease({height: Math.max(2, base - 6), duration: 600, mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
-                    onComplete: () => GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                    onComplete: () => this._eyeTimeout(500, () => {
                         e.ease({height: base, duration: 500, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
                         return GLib.SOURCE_REMOVE;
                     })});
@@ -1921,7 +2087,7 @@ class Notch extends St.Bin {
         }
         for (const e of eyes)
             e.set_style(`background-color:${cols[n]}; box-shadow:0 0 8px 0 ${cols[n]};`);
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 140, () => {
+        this._eyeTimeout(140, () => {
             this._rainbow(eyes, n + 1);
             return GLib.SOURCE_REMOVE;
         });
@@ -1933,7 +2099,7 @@ class Notch extends St.Bin {
         const h = this.height || this._closed.h;
         for (let i = 0; i < count; i++) {
             const delay = Math.floor(Math.random() * (kind === 'confetti' ? 260 : 420));
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+            this._eyeTimeout(delay, () => {
                 this._spawnOneParticle(kind, w, h);
                 return GLib.SOURCE_REMOVE;
             });
@@ -2063,10 +2229,13 @@ class Notch extends St.Bin {
         this._refreshMedia();
         this._resetIdle();
         this._scheduleGreeting();
+        this._tickRoutines();
     }
 
     _onDestroy() {
         this._reminderAlive = false;
+        for (const id of this._eyeAnimTimers) GLib.source_remove(id);
+        this._eyeAnimTimers.clear();
         this._reminderBadge.remove_all_transitions();
         this._reminderFetch++;
         if (this._reminderTimer)

@@ -18,5 +18,5 @@
   <circle cx="640" cy="165" r="13" fill="#9fc0ff"/>
   <text x="600" y="360" fill="#f3f3f5" font-family="Space Grotesk, Arial, sans-serif" font-size="92" font-weight="700" text-anchor="middle">Mira</text>
   <text x="600" y="430" fill="url(#g)" font-family="Space Grotesk, Arial, sans-serif" font-size="40" font-weight="600" text-anchor="middle">a dynamic-island notch for your desktop</text>
-  <text x="600" y="500" fill="#9a9aa4" font-family="Arial, sans-serif" font-size="26" text-anchor="middle">Open source · GNOME now · Windows soon · no telemetry</text>
+  <text x="600" y="500" fill="#9a9aa4" font-family="Arial, sans-serif" font-size="26" text-anchor="middle">Open source · GNOME · Windows preview · no telemetry</text>
 </svg>

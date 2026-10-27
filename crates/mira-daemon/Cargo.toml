@@ -22,3 +22,6 @@ tokio = { version = "1", default-features = false, features = ["rt", "macros", "
 zbus = { version = "6", default-features = false, features = ["tokio", "proxy", "service", "object-manager"] }
 futures-util = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+
+[dev-dependencies]
+async-trait = { workspace = true }
