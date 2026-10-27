@@ -1,4 +1,4 @@
-# Mira for Android — 0.2.0 preview
+# Mira for Android — preview
 
 An independent, local-first Android companion built with **React Native 0.85 / TypeScript** and a **native Kotlin floating capsule**. Android 8.0+ (API 26); this preview APK includes ARM64 phones and x86-64 emulators. iOS is not implemented.
 
@@ -19,7 +19,12 @@ The capsule requires Android's **Display over other apps** permission. Grant it 
 
 Allow notifications separately for reminder and focus alerts. Alarms deliberately use `setAndAllowWhileIdle`, without exact-alarm permission: **Android may delay them in Doze or under manufacturer battery restrictions**. These are personal reminders, not a precise alarm clock. Force-stopping the app prevents deliveries until it is opened again. Denying notification access leaves reminders visible in the app/capsule but prevents system alerts. Device testing beyond the API 35 emulator is still needed.
 
-The preview uses the standard public Android **debug signing key**, bundles JavaScript and works without Metro. It is a test APK, not a production Play release. Keep a private production signing/upload key outside Git before public distribution; Windows SignPath configuration does not sign Android APKs.
+The preview uses the standard public Android **debug signing key**, bundles JavaScript and works without Metro. It is a test APK, not a production Play release. Production distribution requires a private signing/upload key kept outside Git; Windows SignPath configuration does not sign Android APKs.
+
+GitHub Releases include the preview APK alongside the Ubuntu package, named
+`mira_X.Y.Z_android_preview.apk`. Its Android version name matches the release tag
+plus `-preview`, and the app displays that native version in Settings. Preview
+builds retain their development signing key; production signing remains separate.
 
 ## Build
 
