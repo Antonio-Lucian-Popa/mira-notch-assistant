@@ -28,7 +28,7 @@ class MiraOverlayService : Service() {
     private var attached = false
     private var interactive = true
     private var cameraAligned=false
-    private var cameraHole=0f
+    private var cameraLayout: CameraNotchLayout? = null
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             interactive = intent.action != Intent.ACTION_SCREEN_OFF
@@ -81,16 +81,20 @@ class MiraOverlayService : Service() {
     }
     private fun resize() {
         val scale=capsule.state.optDouble("scale",1.0).toFloat()
-        val cutout=if(Build.VERSION.SDK_INT>=30)manager.currentWindowMetrics.windowInsets.displayCutout else if(Build.VERSION.SDK_INT>=28)capsule.rootWindowInsets?.displayCutout else null
-        val hole=cutout?.boundingRects?.filter{it.top<resources.displayMetrics.heightPixels/4&&it.width()>0}?.minByOrNull{it.top}
-        cameraAligned=capsule.state.optBoolean("cameraMode",true)&&hole!=null&&hole.width()<dp(96f)&&!capsule.expanded
+        val metrics = if(Build.VERSION.SDK_INT>=30) manager.currentWindowMetrics else null
+        val insets = metrics?.windowInsets ?: capsule.rootWindowInsets
+        val cutout = if(Build.VERSION.SDK_INT>=28) insets?.displayCutout else null
+        val screenWidth = metrics?.bounds?.width() ?: resources.displayMetrics.widthPixels
+        val screenHeight = metrics?.bounds?.height() ?: resources.displayMetrics.heightPixels
+        val hole=cutout?.boundingRects?.filter{it.top<screenHeight/4&&it.width()>0}?.minByOrNull{it.top}
+        cameraAligned=capsule.state.optBoolean("cameraMode",true)&&hole!=null&&hole.width()<dp(96f)&&abs(hole.exactCenterX()-screenWidth/2f)<dp(48f)&&screenHeight>screenWidth&&!capsule.expanded
         if(cameraAligned&&hole!=null){
-            cameraHole=max(hole.width(),hole.height())/2f+dp(1f)
-            val size=(cameraHole*2+dp(22f)*scale).toInt().coerceAtLeast(dp(40f).toInt())
-            params.width=size;params.height=size;params.gravity=Gravity.TOP or Gravity.LEFT
-            params.x=(hole.centerX()-size/2+dp(capsule.state.optInt("cameraX").toFloat())).toInt()
-            params.y=(hole.centerY()-size/2+dp(capsule.state.optInt("cameraY").toFloat())).toInt()
-            params.flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            val statusBottom = if(Build.VERSION.SDK_INT>=30) insets?.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars())?.top?.toFloat() ?: hole.bottom.toFloat() else hole.bottom.toFloat()
+            val layout = CameraNotchLayout.calculate(resources.displayMetrics.density,scale,screenWidth,hole.exactCenterX(),hole.bottom.toFloat(),statusBottom,capsule.state.optInt("cameraX"),capsule.state.optInt("cameraY"))
+            cameraLayout = layout
+            params.width=layout.width;params.height=layout.height;params.gravity=Gravity.TOP or Gravity.LEFT
+            params.x=layout.left;params.y=0
+            params.flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
             if(Build.VERSION.SDK_INT>=30)params.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             else if(Build.VERSION.SDK_INT>=28)params.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }else{
@@ -150,17 +154,9 @@ class MiraOverlayService : Service() {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             if(cameraAligned&&!expanded){
-                val now=SystemClock.uptimeMillis();val cx=width/2f;val cy=height/2f
-                val motion=state.optBoolean("motion",true)
-                val blink=if(motion&&now>=blinkStart)(1f-sin(((now-blinkStart).coerceAtMost(180)/180f)*PI).toFloat()*.92f)else 1f
-                if(now-blinkStart>180)blinkStart=now+3500
-                val color=if(MiraVoiceService.snapshot().optBoolean("active"))Color.rgb(255,137,158)else Color.rgb(130,222,238)
-                paint.color=Color.rgb(14,18,24);canvas.drawCircle(cx,cy,width/2f,paint)
-                paint.color=color;paint.style=Paint.Style.STROKE;paint.strokeWidth=dp(4f)
-                val radius=cameraHole+dp(5f)
-                canvas.drawOval(cx-radius,cy-radius*blink,cx+radius,cy+radius*blink,paint)
-                paint.style=Paint.Style.FILL
-                paint.xfermode=PorterDuffXfermode(PorterDuff.Mode.CLEAR);canvas.drawCircle(cx,cy,cameraHole,paint);paint.xfermode=null
+                val layout = cameraLayout ?: return
+                CameraNotchRenderer.draw(canvas, layout, paint)
+                drawCameraEyes(canvas, layout)
                 return
             }
             val now = SystemClock.uptimeMillis()
@@ -214,6 +210,29 @@ class MiraOverlayService : Service() {
                     else if (focus != null) { if (focus.optBoolean("paused")) "Pauză" else formatDuration(focus.getLong("due")-System.currentTimeMillis()) }
                     else "mira"
                 text(canvas, label, w/2, h-dp(7f), 9f, color)
+            }
+        }
+        private fun drawCameraEyes(canvas: Canvas, layout: CameraNotchLayout) {
+            val now = SystemClock.uptimeMillis()
+            val motion = state.optBoolean("motion", true)
+            val blink = if (motion && now >= blinkStart) (1f-sin(((now-blinkStart).coerceAtMost(180)/180f)*PI).toFloat()*.94f) else 1f
+            if (now-blinkStart>180) blinkStart=now+3500
+            val urgent = nextReminder()?.let { it.getLong("due")-System.currentTimeMillis()<=60_000 } ?: false
+            val active = now<previewUntil
+            val unit=layout.unit
+            val dx=if(now-lastTouch<2000)lookX*3f*unit else 0f
+            val dy=if(now-lastTouch<2000)lookY*2f*unit else 0f
+            val jitter=if(motion&&urgent)sin(now/95.0).toFloat()*unit else 0f
+            val tint=if(urgent||MiraVoiceService.snapshot().optBoolean("active"))Color.rgb(255,137,158) else Color.WHITE
+            for(i in 0..1){
+                val cx=width/2f+(if(i==0)-13f else 13f)*unit+dx+jitter
+                val cy=layout.eyeY+dy
+                val wink=active&&expression=="wink"&&i==1
+                val eyeHeight=(if(active&&expression=="sleepy")3f else if(active&&expression=="excited")13f else 11f)*unit*(if(wink).13f else blink)
+                paint.shader=RadialGradient(cx,cy,13f*unit,intArrayOf(Color.argb(90,149,230,255),Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
+                canvas.drawCircle(cx,cy,13f*unit,paint);paint.shader=null
+                paint.color=tint
+                canvas.drawRoundRect(cx-5.5f*unit,cy-eyeHeight/2,cx+5.5f*unit,cy+eyeHeight/2,6f*unit,6f*unit,paint)
             }
         }
         private fun text(canvas: Canvas, value: String, x: Float, y: Float, size: Float, color: Int) {

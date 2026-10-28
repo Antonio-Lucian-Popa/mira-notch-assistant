@@ -92,9 +92,13 @@ commands or arbitrary key sequences. Offline commands fail instead of being queu
 for a surprise execution later. “Accepted” is queue acknowledgement; the target OS
 may reserve or ignore a combination. Revoking on the desktop invalidates pairing.
 
-The single-eye camera style uses reported display-cutout geometry with X/Y
-calibration; ordinary capsule remains the fallback. It draws around a lens, never
-on the physical hole. Status/system surfaces can cover app overlays. Verified on
+The camera notch uses reported display-cutout geometry: a black tab attached to
+the top edge, curved shoulders, two blinking white eyes below the lens, and a
+wide cyan glow along its rounded bottom. X/Y calibration and scale remain
+available; upward calibration keeps the eyes below the camera. The ordinary
+capsule remains the fallback for landscape, off-center/wide cutouts or missing
+cutout data, keeping status controls reachable.
+The physical camera lens is never painted over. Status/system surfaces can cover app overlays. Verified on
 an emulated punch-hole, not an actual Samsung S26. The native Whisper backend was checked on a connected Samsung phone with
 offline synthesized Romanian command fixtures and microphone startup; actual
 speaker accuracy and live camera QR reading still need device-specific testing.
