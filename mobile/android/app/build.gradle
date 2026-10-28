@@ -125,8 +125,8 @@ android {
         externalNativeBuild {
             cmake { arguments "-DMIRA_WHISPER_SOURCE=${whisperRoot.get().asFile.absolutePath}" }
         }
-        versionCode (releaseCode > 0 ? releaseCode.toInteger() : 7)
-        versionName (releaseVersion ?: "0.2.5")
+        versionCode (releaseCode > 0 ? releaseCode.toInteger() : 8)
+        versionName (releaseVersion ?: "0.2.6")
     }
     externalNativeBuild { cmake { path "src/main/jni/CMakeLists.txt" } }
     signingConfigs {

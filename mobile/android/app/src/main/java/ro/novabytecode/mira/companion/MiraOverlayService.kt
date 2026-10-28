@@ -28,6 +28,7 @@ class MiraOverlayService : Service() {
     private var attached = false
     private var interactive = true
     private var cameraAligned=false
+    private var statusBand: View? = null
     private var cameraLayout: CameraNotchLayout? = null
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -92,12 +93,14 @@ class MiraOverlayService : Service() {
             val statusBottom = if(Build.VERSION.SDK_INT>=30) insets?.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars())?.top?.toFloat() ?: hole.bottom.toFloat() else hole.bottom.toFloat()
             val layout = CameraNotchLayout.calculate(resources.displayMetrics.density,scale,screenWidth,hole.exactCenterX(),hole.bottom.toFloat(),statusBottom,capsule.state.optInt("cameraX"),capsule.state.optInt("cameraY"))
             cameraLayout = layout
+            syncStatusBand(ceil(layout.shoulderY).toInt())
             params.width=layout.width;params.height=layout.height;params.gravity=Gravity.TOP or Gravity.LEFT
             params.x=layout.left;params.y=0
             params.flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
             if(Build.VERSION.SDK_INT>=30)params.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             else if(Build.VERSION.SDK_INT>=28)params.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }else{
+            syncStatusBand(null)
             params.width=dp(if(capsule.expanded)300f else 146f*scale).toInt();params.height=dp(if(capsule.expanded)136f else 52f*scale).toInt()
             params.gravity=Gravity.TOP or Gravity.CENTER_HORIZONTAL;params.x=0
             params.flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -106,9 +109,27 @@ class MiraOverlayService : Service() {
         }
         manager.updateViewLayout(capsule,params)
     }
+    // A separate decorative strip joins the small tab to the whole status
+    // bar. System clock/icons remain above app overlays and receive their input.
+    private fun syncStatusBand(height: Int?) {
+        if(height==null){statusBand?.let{manager.removeView(it)};statusBand=null;return}
+        // Android caps NOT_TOUCHABLE overlay opacity, producing a grey strip.
+        // The system status bar is above this decorative window and retains input.
+        val bandParams=WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT,height.coerceAtLeast(1),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT).apply {
+            gravity=Gravity.TOP or Gravity.LEFT
+            if(Build.VERSION.SDK_INT>=30){layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;setFitInsetsTypes(0)}
+            else if(Build.VERSION.SDK_INT>=28)layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        val existing=statusBand
+        if(existing!=null)manager.updateViewLayout(existing,bandParams)
+        else{val band=View(this).apply{setBackgroundColor(Color.rgb(9,9,11));importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO};manager.addView(band,bandParams);statusBand=band}
+    }
     override fun onConfigurationChanged(config:android.content.res.Configuration){super.onConfigurationChanged(config);reload()}
     override fun onDestroy() {
         shake.close()
+        if(::manager.isInitialized)syncStatusBand(null)
         if (attached) {
             capsule.stop()
             unregisterReceiver(screen)
@@ -225,14 +246,14 @@ class MiraOverlayService : Service() {
             val jitter=if(motion&&urgent)sin(now/95.0).toFloat()*unit else 0f
             val tint=if(urgent||MiraVoiceService.snapshot().optBoolean("active"))Color.rgb(255,137,158) else Color.WHITE
             for(i in 0..1){
-                val cx=width/2f+(if(i==0)-13f else 13f)*unit+dx+jitter
+                val cx=width/2f+(if(i==0)-10f else 10f)*unit+dx+jitter
                 val cy=layout.eyeY+dy
                 val wink=active&&expression=="wink"&&i==1
-                val eyeHeight=(if(active&&expression=="sleepy")3f else if(active&&expression=="excited")13f else 11f)*unit*(if(wink).13f else blink)
+                val eyeHeight=(if(active&&expression=="sleepy")3f else if(active&&expression=="excited")13f else 9f)*unit*(if(wink).13f else blink)
                 paint.shader=RadialGradient(cx,cy,13f*unit,intArrayOf(Color.argb(90,149,230,255),Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
                 canvas.drawCircle(cx,cy,13f*unit,paint);paint.shader=null
                 paint.color=tint
-                canvas.drawRoundRect(cx-5.5f*unit,cy-eyeHeight/2,cx+5.5f*unit,cy+eyeHeight/2,6f*unit,6f*unit,paint)
+                canvas.drawRoundRect(cx-4.5f*unit,cy-eyeHeight/2,cx+4.5f*unit,cy+eyeHeight/2,6f*unit,6f*unit,paint)
             }
         }
         private fun text(canvas: Canvas, value: String, x: Float, y: Float, size: Float, color: Int) {
