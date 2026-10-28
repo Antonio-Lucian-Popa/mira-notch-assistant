@@ -1383,11 +1383,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             0
         }
         WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
-            SetTextColor(wp as HDC, rgb(233, 245, 243));
-            SetBkColor(wp as HDC, rgb(20, 31, 44));
+            // Neutral graphite input fields on the black notch (matches the
+            // GNOME #1c1c22 entry pill), with near-white text.
+            SetTextColor(wp as HDC, rgb(242, 242, 243));
+            SetBkColor(wp as HDC, rgb(28, 28, 34));
             static mut BRUSH: HBRUSH = null_mut();
             if BRUSH.is_null() {
-                BRUSH = CreateSolidBrush(rgb(20, 31, 44));
+                BRUSH = CreateSolidBrush(rgb(28, 28, 34));
             }
             BRUSH as isize
         }

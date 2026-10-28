@@ -779,3 +779,67 @@
 .mira-ctheme-sunset .mira-dot.active {background-color:#ff8c5a;}
 .mira-ctheme-sunset .mira-pill-accent {background-color:#b5582f;}
 .mira-ctheme-sunset .mira-summary-number {color:#ffb694;}
+
+/* ============================================================================
+ * PURE-BLACK "dynamic island" look — final cascade layer.
+ * Earlier layers drifted to a teal/graphite surface; these rules bring the
+ * notch back to the near-black mockup palette (design/tokens.json) and match
+ * the music / shelf / todo reference screenshots. This is the last block in the
+ * file, so it wins over the graphite overrides above for the default theme;
+ * per-theme accents (.mira-ctheme-* , two-class specificity) still win over it.
+ * ==========================================================================*/
+
+/* Outer pill: deep black glass, hairline edge, soft deep shadow. The corner
+ * radius itself is driven inline from JS (_rootStyle), so it is not set here. */
+.mira-notch {
+    background-color: rgba(9, 9, 11, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: 0 18px 48px 0 rgba(0, 0, 0, 0.62);
+}
+
+/* Header: left cluster (ring + title + eyes), centered tabs, right stamp/viz. */
+.mira-open { padding: 12px 16px 8px; spacing: 10px; }
+.mira-header { spacing: 10px; padding: 2px 2px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.mira-page-title { font-size: 16px; font-weight: 700; color: #f2f2f3; padding: 0 2px; }
+.mira-ring { width: 18px; height: 18px; }
+.mira-header-viz-bar { width: 3px; border-radius: 2px; background-color: #e6ebf7; }
+.mira-header-stamp .mira-time { font-size: 15px; font-weight: 700; color: #ffffff; text-align: right; }
+.mira-header-stamp .mira-date { font-size: 10px; color: #8a8a90; text-align: right; }
+
+/* Top tab bar: neutral graphite on black, white active pill. */
+.mira-top-tab { color: #8c8c93; border-radius: 13px; }
+.mira-top-tab:hover { background-color: rgba(255, 255, 255, 0.07); color: #f2f2f3; }
+.mira-top-tab:focus { background-color: rgba(255, 255, 255, 0.10); color: #ffffff; }
+.mira-top-tab.active { background-color: rgba(255, 255, 255, 0.12); color: #ffffff; }
+
+/* Bottom page dots: dim pills, active one a short bright-white pill. */
+.mira-dots { spacing: 6px; padding-top: 8px; }
+.mira-dot { width: 6px; height: 6px; border-radius: 99px; background-color: #3a3a40; }
+.mira-dot.active { width: 18px; background-color: #f2f2f3; }
+
+/* Music — album art, title/artist, the ">" expand circle (mockup image 2). */
+.mira-art { width: 56px; height: 56px; border-radius: 15px; background-color: #26262b; }
+.mira-art-empty { background-color: #13233f; }
+.mira-art-icon { color: #7fa6e8; }
+.mira-title { font-size: 18px; font-weight: 700; color: #f2f2f3; }
+.mira-artist { font-size: 12px; color: #9a9aa0; }
+.mira-round-btn { width: 32px; height: 32px; border-radius: 99px; background-color: rgba(255, 255, 255, 0.10); }
+.mira-round-btn:hover { background-color: rgba(255, 255, 255, 0.18); }
+.mira-round-glyph { font-size: 18px; font-weight: 700; color: #e9e9ee; }
+.mira-time-small { font-size: 11px; color: #9a9aa0; }
+
+/* Transport: plain bright glyphs, no filled circles (mockup shows no blue). */
+.mira-music-controls { min-height: 52px; padding-top: 2px; }
+.mira-controls { spacing: 26px; }
+.mira-ctl-btn { width: 36px; height: 36px; min-width: 0; min-height: 0; padding: 0; border-radius: 99px; background-color: transparent; color: #f2f2f3; }
+.mira-ctl-btn:hover { background-color: rgba(255, 255, 255, 0.10); }
+.mira-ctl-play { width: 40px; height: 40px; border-radius: 99px; background-color: transparent; color: #ffffff; }
+.mira-ctl-play:hover { background-color: rgba(255, 255, 255, 0.10); }
+.mira-ghost-btn { border-radius: 99px; padding: 7px; color: #cfcfd6; background-color: rgba(255, 255, 255, 0.06); }
+.mira-ghost-btn:hover { background-color: rgba(255, 255, 255, 0.12); }
+
+/* Shelf & todo surfaces stay on the black backdrop; keep todo's green "done". */
+.mira-shelf-thumb { background-color: #1c1c22; }
+.mira-trow { background-color: #17171c; }
+.mira-trow.done { background-color: #13311f; }
+.mira-tcheck.on { background-color: #2ee67a; color: #0a2414; }
