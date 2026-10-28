@@ -117,8 +117,9 @@ actual lock state. Use “Resetează la plecare” after manual state changes.
 Revoking/re-pairing rotates credentials while retaining profiles and resetting
 the step to departure. Detection runs with the
 overlay while the phone screen is on, including over other apps. It pauses
-when the screen is off and stops with the overlay. There is a 15 second
-cooldown. Commands are not queued for an offline PC. Disabling the gesture or
+when the screen is off and stops with the overlay. There is no cooldown between complete three-shake sequences. A 120 ms
+per-peak debounce and low/high hysteresis reject repeated accelerometer events
+from the same movement; the counter resets immediately on the third shake. Commands are not queued for an offline PC. Disabling the gesture or
 unpairing stops detection. Without a return mapping the departure action is
 repeated. Return sends the configured shortcut; it never bypasses system
 password/biometric authentication. Reserved shortcuts may be rejected by the OS.

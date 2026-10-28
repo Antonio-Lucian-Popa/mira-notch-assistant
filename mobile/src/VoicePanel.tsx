@@ -326,10 +326,10 @@ export function VoicePanel({ data, run }: Props) {
             <Text style={s.small}>
               Trei scuturări ferme alternează Plecare / Revenire, conform listei
               salvate pe PC. Funcționează cu capsula pornită și ecranul
-              telefonului aprins, inclusiv peste alte aplicații. Pauză de 15
-              secunde între gesturi. PC-ul trebuie să fie online și primirea
-              activă. Revenirea trimite shortcutul ales; deblocarea securizată
-              cere autentificarea sistemului.
+              telefonului aprins, inclusiv peste alte aplicații. Poți începe
+              imediat următoarea secvență de trei scuturări. PC-ul trebuie să
+              fie online și primirea activă. Revenirea trimite shortcutul ales;
+              deblocarea securizată cere autentificarea sistemului.
             </Text>
             <Button
               title={
