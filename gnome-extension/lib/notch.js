@@ -295,16 +295,6 @@ class Notch extends St.Bin {
         this._stack.add_child(this._alertBox);
         this._stack.add_child(this._greetBox);
 
-        // Soft cyan "light" that glows up from under the mascot eyes on the
-        // closed pill (mockup). It sits at the bottom-center behind the eyes and
-        // is shown only while the closed view is up and the eyes are visible.
-        this._eyeGlow = new St.Widget({style_class: 'mira-eye-glow', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.END});
-        this._stack.insert_child_below(this._eyeGlow, this._closedBox);
-        this._eyeGlow.hide();
-        this._closedBox.connect('notify::visible', () => {
-            if (this._eyeGlow) this._eyeGlow.visible = this._closedBox.visible && this._eyes.visible;
-        });
-
         // Overlay for transient particle effects (hearts, confetti). Free
         // positioning (no layout manager), non-reactive, drawn on top.
         this._fxLayer = new St.Widget({x_expand: true, y_expand: true, reactive: false});
@@ -433,21 +423,38 @@ class Notch extends St.Bin {
             cr.$dispose();
             return;
         }
-        const rb = Math.max(2, Math.min(this._curRadius || 18, w / 2 - 1, h / 2 - 1)); // bottom convex
-        const rw = Math.max(2, Math.min(14, w / 2 - rb - 1, h / 2 - 1));               // top concave wings
-        cr.newSubPath();
-        cr.moveTo(rw, 0);                                   // flat top edge, necked by the wings
-        cr.lineTo(w - rw, 0);
-        cr.arcNegative(w, 0, rw, Math.PI, Math.PI / 2);     // top-right concave wing
-        cr.lineTo(w, h - rb);
-        cr.arc(w - rb, h - rb, rb, 0, Math.PI / 2);         // bottom-right convex
-        cr.lineTo(rb, h);
-        cr.arc(rb, h - rb, rb, Math.PI / 2, Math.PI);       // bottom-left convex
-        cr.lineTo(0, rw);
-        cr.arcNegative(0, 0, rw, Math.PI / 2, 0);           // top-left concave wing
-        cr.closePath();
+        const rb = Math.max(2, Math.min(this._curRadius || 18, w / 2 - 1, h / 2 - 1));
+        // Clean flat top, with only the bottom corners rounded.
+        const path = () => {
+            cr.newSubPath();
+            cr.moveTo(0, 0);
+            cr.lineTo(w, 0);
+            cr.lineTo(w, h - rb);
+            cr.arc(w - rb, h - rb, rb, 0, Math.PI / 2);
+            cr.lineTo(rb, h);
+            cr.arc(rb, h - rb, rb, Math.PI / 2, Math.PI);
+            cr.closePath();
+        };
+        path();
         cr.setSourceRGBA(9 / 255, 9 / 255, 11 / 255, 0.98);
         cr.fill();
+
+        // Variant D: a wide cyan band fading upward from below the bottom edge.
+        if (!this._open) {
+            cr.save();
+            path();
+            cr.clip();
+            cr.translate(w / 2, h * 1.18);
+            cr.scale(w * 1.20, h * 0.70);
+            const grad = new cairo.RadialGradient(0, 0, 0, 0, 0, 1);
+            grad.addColorStopRGBA(0.0, 70 / 255, 230 / 255, 240 / 255, 0.85);
+            grad.addColorStopRGBA(0.40, 38 / 255, 150 / 255, 215 / 255, 0.40);
+            grad.addColorStopRGBA(0.72, 0, 0, 0, 0);
+            grad.addColorStopRGBA(1.0, 0, 0, 0, 0);
+            cr.setSource(grad);
+            cr.paint();
+            cr.restore();
+        }
         cr.$dispose();
     }
 
@@ -1780,7 +1787,6 @@ class Notch extends St.Bin {
         this._viz.visible = showViz;
         this._clock.visible = !showEyes && !showViz;
         this._reminderBadge.visible = pending && !minimal;
-        if (this._eyeGlow) this._eyeGlow.visible = showEyes && this._closedBox.visible;
 
         if (showEyes && !this._open)
             this._startEyeLife();
@@ -2329,7 +2335,7 @@ class Notch extends St.Bin {
     // colored halo from the cover art. Inline style always wins over the sheet.
     _rootStyle(radius) {
         // When the cairo silhouette draws the notch, keep the St surface fully
-        // clear so only the drawn shape (with its concave wings) is visible.
+        // clear so only the flat-top, rounded-bottom shape is visible.
         if (this._shapeActive())
             return 'background-color:transparent; border:none; box-shadow:none; border-radius:0;';
         let s = `border-radius:${radius}px;`;
