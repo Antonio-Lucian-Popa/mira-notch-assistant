@@ -822,16 +822,7 @@
     background-color: #ffffff;
     box-shadow: 0 0 11px 0 rgba(120, 200, 255, 0.85);
 }
-
-/* The cyan "light" glowing up from under the eyes on the closed pill. */
-.mira-eye-glow {
-    width: 44px;
-    height: 3px;
-    border-radius: 99px;
-    background-color: rgba(86, 206, 236, 0.9);
-    box-shadow: 0 0 20px 7px rgba(70, 194, 230, 0.6);
-    margin-bottom: 7px;
-}
+/* The cyan "light" under the eyes is drawn in cairo (_drawShape), not CSS. */
 
 /* Music — album art, title/artist, the ">" expand circle (mockup image 2). */
 .mira-art { width: 56px; height: 56px; border-radius: 15px; background-color: #26262b; }
