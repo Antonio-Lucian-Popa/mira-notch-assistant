@@ -3,9 +3,8 @@
 // timings come from design tokens so it matches the Windows notch. All state is
 // pushed in from the daemon via MiraClient; this file only draws and animates.
 //
-// The open view is built around a persistent header (status ring + date + time
-// + visualizer) with left/right nav arrows flanking the page area, matching the
-// Mira design mockups. The closed view is the mascot eyes (or clock / mini
+// The open view has a compact status header, live overview cards and a bottom
+// navigation bar. The closed view is the mascot eyes (or clock / mini
 // music). The eyes have a library of personality animations and a scheduled
 // daily greeting, with birthday confetti.
 
@@ -26,11 +25,12 @@ import {reminderState, parseWhen} from './reminders.js';
 import {routineEvents, validTime} from './routines.js';
 import {THEMES, EXPRESSIONS, contextMood, looksNatural, summaryText} from './mascot.js';
 
-const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary', 'notes', 'clipboard', 'search', 'phone'];
+const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary', 'notes', 'clipboard', 'search', 'phone', 'home'];
 
 // Titles shown at the left of the header per page. Music has none (its header
 // is just date/time). Two-tone titles use Pango markup.
 const PAGE_TITLES = {
+    home: 'mira',
     music: '',
     lyrics: 'Lyrics',
     focus: 'Pomodoro',
@@ -200,10 +200,7 @@ class Notch extends St.Bin {
         });
         this.set_child(this._stack);
 
-        // Cairo-drawn notch silhouette (behind everything): a flat top that
-        // merges with the dark panel, convex rounded bottom, and small concave
-        // "wing" corners at the top so the pill reads as a dynamic island
-        // hanging from the bar. Only used in integrated+docked mode; otherwise
+        // Cairo silhouette: flat top, rounded bottom and the resting cyan band. Only used in integrated+docked mode; otherwise
         // the CSS rounded-pill background shows through (see _shapeActive).
         this._shapeArea = new St.DrawingArea({x_expand: true, y_expand: true, reactive: false});
         this._shapeArea.connect('repaint', () => this._drawShape());
@@ -260,8 +257,8 @@ class Notch extends St.Bin {
         this._buildDots();
 
         this._openBox.add_child(this._header);
-        this._openBox.add_child(this._extraScroll);
         this._openBox.add_child(body);
+        this._openBox.add_child(this._tabsBox);
         this._openBox.add_child(this._dots);
         this._openBox.hide();
 
@@ -308,9 +305,10 @@ class Notch extends St.Bin {
         this._buildTodoPage();
         this._buildRemindersPage();
         this._buildSummaryPage();
+        this._buildHomePage();
         this._desktop = new Desktop(this, this._client, this._settings, this._hooks);
         this._desktop.build(this._pageArea);
-        this.setPage(5);
+        this.setPage(PAGES.indexOf('home'));
     }
 
     _buildHeader() {
@@ -337,49 +335,25 @@ class Notch extends St.Bin {
         this._tabsBox = new St.BoxLayout({style_class:'mira-top-tabs',y_align:Clutter.ActorAlign.CENTER});
         this._tabActors = [];
         this._tabLabels = [];
-        const icons = ['audio-x-generic-symbolic', 'view-list-symbolic', 'alarm-symbolic', 'weather-showers-symbolic', 'preferences-system-notifications-symbolic', 'folder-symbolic', 'checkbox-checked-symbolic', 'view-statistics-symbolic', 'document-edit-symbolic', 'edit-paste-symbolic', 'system-search-symbolic', 'phone-symbolic'];
-        this._tabNames = ['Muzică', 'Versuri', 'Focus', 'Apă', 'Remindere', 'Raft', 'Sarcini', 'Rezumat', 'Notițe', 'Clipboard', 'Căutare', 'Telefon'];
-        this._primaryTabs = [0, 5, 11];
-        this._extraTabs = new St.BoxLayout({vertical: true, style_class: 'mira-extra-tabs'});
-        const extraRows = [];
-        for (let row = 0; row < 3; row++) {
-            const box = new St.BoxLayout({style_class: 'mira-extra-row', x_expand: true});
-            extraRows.push(box);
-            this._extraTabs.add_child(box);
-        }
-        let extraIndex = 0;
-        this._extraScroll = new St.ScrollView({hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.NEVER});
-        this._extraScroll.set_child(this._extraTabs);
-        this._extraScroll.hide();
+        const icons = ['audio-x-generic-symbolic', 'view-list-symbolic', 'alarm-symbolic', 'weather-showers-symbolic', 'preferences-system-notifications-symbolic', 'folder-symbolic', 'checkbox-checked-symbolic', 'view-statistics-symbolic', 'document-edit-symbolic', 'edit-paste-symbolic', 'system-search-symbolic', 'phone-symbolic', 'go-home-symbolic'];
+        this._tabNames = ['Muzică', 'Versuri', 'Focus', 'Apă', 'Remindere', 'Raft', 'Sarcini', 'Rezumat', 'Notițe', 'Clipboard', 'Căutare', 'Telefon', 'Acasă'];
         PAGES.forEach((_name, index) => {
             const content = new St.BoxLayout({style_class: 'mira-tab-content', y_align: Clutter.ActorAlign.CENTER});
-            content.add_child(new St.Icon({icon_name: icons[index], icon_size: 20}));
-            const label = new St.Label({text: this._tabNames[index], y_align: Clutter.ActorAlign.CENTER});
+            content.add_child(new St.Icon({icon_name: icons[index], icon_size: 14}));
+            const label = new St.Label({text: this._tabNames[index], style_class: 'mira-nav-label', y_align: Clutter.ActorAlign.CENTER});
+            label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
             label.hide();
             content.add_child(label);
             const button = new St.Button({style_class: 'mira-top-tab', can_focus: true, accessible_name: this._tabNames[index], child: content});
             button.connect('clicked', () => this.setPage(index));
             this._tabActors.push(button);
             this._tabLabels.push(label);
-            if (this._primaryTabs.includes(index)) this._tabsBox.add_child(button);
-            else {
-                button.x_expand = true;
-                extraRows[Math.floor(extraIndex++ / 3)].add_child(button);
-            }
+            this._tabsBox.add_child(button);
         });
-        this._moreButton = new St.Button({style_class: 'mira-top-tab', can_focus: true, accessible_name: 'Mai multe secțiuni'});
-        this._moreContent = new St.BoxLayout({style_class: 'mira-tab-content'});
-        this._moreContent.add_child(new St.Icon({icon_name: 'view-more-symbolic', icon_size: 20}));
-        this._moreLabel = new St.Label({text: 'Mai multe', y_align: Clutter.ActorAlign.CENTER});
-        this._moreContent.add_child(this._moreLabel);
-        this._moreButton.set_child(this._moreContent);
-        this._moreButton.connect('clicked', () => {
-            this._extraScroll.visible = !this._extraScroll.visible;
-            this._moreButton.accessible_name = this._extraScroll.visible ? 'Închide secțiunile suplimentare' : 'Mai multe secțiuni';
-        });
-        this._tabsBox.add_child(this._moreButton);
-        this._tabsBox.x_expand = true;
-        this._header.add_child(this._tabsBox);
+        this._tabsBox.set_child_at_index(this._tabActors[PAGES.indexOf('home')], 0);
+        this._tabsBox.x_expand = false;
+        this._tabsBox.x_align = Clutter.ActorAlign.CENTER;
+        this._header.add_child(spacer);
         // Right cluster (mockup): music visualizer bars + the date/time stamp.
         this._header.add_child(this._headerViz);
         const stamp=new St.BoxLayout({vertical:true,width:60,x_expand:false,y_align:Clutter.ActorAlign.CENTER,style_class:'mira-header-stamp'});
@@ -511,6 +485,76 @@ class Notch extends St.Bin {
     // decorative (not clickable) and cluttered the docked notch. The `_dots`
     // container stays (the desktop footer still lays it out) but holds nothing.
     _buildDots() {this._dotActors = []; this._dots.hide();}
+
+    // Live overview. Cards open the existing pages; controls call the same actions.
+    _buildHomePage() {
+        this._homePage = new St.BoxLayout({style_class: 'mira-home', x_expand: true, y_expand: true});
+        this._homePage.layout_manager.homogeneous = true;
+        this._homeTiles = {};
+        const tiles = [
+            ['music', 'Muzică', 'audio-x-generic-symbolic', () => this._client.playPause()],
+            ['focus', 'Focus', 'alarm-symbolic', () => this._client.pomoToggle()],
+            ['reminders', 'Remindere', 'preferences-system-notifications-symbolic', () => this.setPage(PAGES.indexOf('reminders'))],
+        ];
+        for (const [name, title, icon, action] of tiles) {
+            const tile = new St.BoxLayout({vertical: true, style_class: `mira-home-tile ${name}`, x_expand: true, y_expand: true, reactive: true, track_hover: true});
+            const head = new St.BoxLayout({style_class: 'mira-tile-heading'});
+            head.add_child(new St.Icon({icon_name: icon, icon_size: 14}));
+            head.add_child(new St.Label({text: title}));
+            const link = new St.Button({child: head, can_focus: true, accessible_name: `Deschide ${title}`, style_class: 'mira-tile-link', x_align: Clutter.ActorAlign.START});
+            link.connect('clicked', () => this.setPage(PAGES.indexOf(name)));
+            tile.add_child(link);
+            tile.add_child(new St.Widget({y_expand: true, height: 24}));
+            const value = new St.Label({text: '—', style_class: 'mira-tile-value', x_expand: true});
+            const detail = new St.Label({text: '', style_class: 'mira-tile-detail', x_expand: true});
+            value.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            detail.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            tile.add_child(value);tile.add_child(detail);
+            const foot = new St.BoxLayout({style_class: 'mira-tile-footer', x_expand: true});
+            const caption = new St.Label({text: '', style_class: 'mira-tile-caption', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+            caption.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            const control = this._iconButton(name === 'reminders' ? 'list-add-symbolic' : 'media-playback-start-symbolic', action, 'mira-tile-control');
+            const glyph = control.get_child();control.set_child(null);
+            glyph.set_style('color:#33273e;background-color:transparent;border:none;box-shadow:none;');
+            control._tileIcon = glyph;
+            const face = new St.Widget({layout_manager: new Clutter.BinLayout(), width:28, height:28});
+            const disk = new St.DrawingArea({width:28,height:28});
+            disk.connect('repaint', () => {const cr=disk.get_context();cr.setSourceRGBA(.97,.95,.98,1);cr.arc(14,14,13,0,2*Math.PI);cr.fill();cr.$dispose();});
+            face.add_child(disk);face.add_child(glyph);control.set_child(face);
+            foot.add_child(caption);foot.add_child(control);tile.add_child(foot);
+            tile.connect('notify::hover', () => {
+                tile.ease({translation_y: tile.hover && this._settings.get_double('motion-intensity') > 0 ? -3 : 0, duration: 160, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+            });
+            this._homeTiles[name] = {tile, value, detail, caption, control};
+            this._homePage.add_child(tile);
+        }
+        this._pageArea.add_child(this._homePage);
+    }
+
+    _refreshHome() {
+        if (!this._homeTiles) return;
+        const music = this._homeTiles.music;
+        const m = this._media;
+        music.value.text = this._title?.text || 'Nicio melodie';
+        music.detail.text = this._artist?.text || 'Playerul tău';
+        music.caption.text = m.status === 'Playing' ? 'În redare' : 'Ascultă ceva';
+        music.control.accessible_name = m.status === 'Playing' ? 'Pauză muzică' : 'Redă muzică';
+        music.control._tileIcon.icon_name = m.status === 'Playing' ? 'media-playback-pause-symbolic' : 'media-playback-start-symbolic';
+        const focus = this._homeTiles.focus;
+        const p = this._client.pomodoro();
+        focus.value.text = this._fmtTime(p.remaining || (p.running ? 0 : 25 * 60));
+        focus.detail.text = p.phase === 'work' ? 'Timp pentru tine' : 'Pauză de respiro';
+        focus.caption.text = p.running ? 'În desfășurare' : 'Pregătit de start';
+        focus.control.accessible_name = p.running ? 'Pauză focus' : 'Pornește focus';
+        focus.control._tileIcon.icon_name = p.running ? 'media-playback-pause-symbolic' : 'media-playback-start-symbolic';
+        const reminders = this._homeTiles.reminders;
+        const next = this._reminders[0];
+        const state = next ? reminderState(next, Math.floor(Date.now()/1000)) : null;
+        reminders.value.text = state ? (state.remaining ? state.countdown : 'Acum') : 'O clipă';
+        reminders.detail.text = next?.text || 'Pentru ce contează';
+        reminders.caption.text = next ? 'Urmează' : 'Adaugă reminder';
+        reminders.control.accessible_name = 'Deschide remindere';
+    }
 
     // --- Music page ---
     _buildMusicPage() {
@@ -1486,13 +1530,8 @@ class Notch extends St.Bin {
             const active = index === this._page;
             if (active) tab.add_style_class_name('active');
             else tab.remove_style_class_name('active');
-            this._tabLabels[index].visible = !this._primaryTabs.includes(index) || active;
+            this._tabLabels[index].visible = active;
         });
-        const secondary = !this._primaryTabs.includes(this._page);
-        this._moreLabel.text = secondary ? this._tabNames[this._page] : 'Mai multe';
-        if (secondary) this._moreButton.add_style_class_name('active');
-        else this._moreButton.remove_style_class_name('active');
-        this._extraScroll.hide();
         this._dotActors.forEach((d, idx) =>
             idx === this._page ? d.add_style_class_name('active') : d.remove_style_class_name('active')
         );
@@ -1502,6 +1541,7 @@ class Notch extends St.Bin {
 
     _showPageActor(i) {
         const name = PAGES[i];
+        this._homePage.visible = name === 'home';
         this._musicPage.visible = name === 'music';
         this._lyricsPage.visible = name === 'lyrics';
         this._focusPage.visible = name === 'focus';
@@ -1527,6 +1567,10 @@ class Notch extends St.Bin {
 
     _refreshPage(name) {
         switch (name) {
+        case 'home':
+            this._refreshHome();
+            this.refreshReminders();
+            break;
         case 'lyrics':
             this._refreshLyrics();
             break;
@@ -1740,6 +1784,8 @@ class Notch extends St.Bin {
         this._progressTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
             if (PAGES[this._page] === 'music' && this._open)
                 this._updateProgress();
+            else if (PAGES[this._page] === 'home' && this._open)
+                this._refreshHome();
             return GLib.SOURCE_CONTINUE;
         });
     }
@@ -2157,6 +2203,7 @@ class Notch extends St.Bin {
     }
 
     _updateClock() {
+        if (this._open && PAGES[this._page] === 'home') this._refreshHome();
         this._tickRoutines();
         const now = GLib.DateTime.new_now_local();
         this._clock.text = now.format('%H:%M');

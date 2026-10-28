@@ -161,7 +161,7 @@ export class Desktop {
             if (e.get_button() === 3) {this.menu.toggle(); return Clutter.EVENT_STOP;}
             if (e.get_button() !== 1) return Clutter.EVENT_PROPAGATE;
             const source = e.get_source();
-            if (this.n._tabsBox?.contains(source) || this.n._extraTabs?.contains(source)) return Clutter.EVENT_PROPAGATE;
+            if (this.n._tabsBox?.contains(source)) return Clutter.EVENT_PROPAGATE;
             const now = e.get_time();
             if (now-this.lastClick < 360) {this.lastClick=0; this.home(); return Clutter.EVENT_STOP;}
             const resizing = this.n._open && x > this.n.x+this.n.width-26 && y > this.n.y+this.n.height-26;

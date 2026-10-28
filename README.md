@@ -245,8 +245,10 @@ The toolbar includes **Telefon** for pairing, receiving transcripts and register
    injection while locked. OS-reserved combinations and secure Windows desktops
    can reject synthetic input.
 
-The Android overlay can align a single blinking iris around a reported camera
-cutout, with horizontal/vertical calibration and a normal-capsule fallback. The
+The Android overlay can merge a reported camera cutout into a black notch
+attached to the top edge, with curved shoulders, two blinking eyes below the
+lens and a cyan bottom glow. Horizontal/vertical calibration and scale are
+available, with the normal capsule as fallback. The
 physical lens has no drawable pixels, and protected system surfaces may hide the
 app's overlay. This was tested with an emulated punch-hole, **not a Galaxy S26**.
 
@@ -450,3 +452,10 @@ action, can be deleted. Deletion clears only its shake assignments and pending
 queue entries. It never selects another action automatically. With one selected
 action, shakes repeat that action; with neither selected, shaking does nothing.
 These choices, including an empty list, remain saved after receiver restarts.
+
+The GNOME workspace opens on a live Home overview with three gradient cards:
+music, focus and upcoming reminders. Each card opens its full page and has a
+working playback/focus/add control. Navigation is pinned below the content;
+All sections are directly available as compact bottom icons; only the selected
+section shows its label. Cards lift on hover when motion is
+enabled, respect the motion-intensity setting, and fit the 440 px minimum width.

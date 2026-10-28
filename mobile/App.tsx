@@ -638,7 +638,7 @@ function MiraApp() {
                   <Text style={s.label}>Poziționare la cameră</Text>
                   <View style={s.row}>
                     <Button
-                      title="Un ochi · auto"
+                      title="Notch cu aripi · auto"
                       quiet={data.cameraMode === false}
                       onPress={() => action('settings', { cameraMode: true })}
                     />
@@ -649,7 +649,8 @@ function MiraApp() {
                     />
                   </View>
                   <Caption>
-                    Ochiul înconjoară camera dacă Android raportează decupajul.
+                    Camera se unește cu forma neagră de sus, cu doi ochi
+                    dedesubt și lumină cyan, dacă Android raportează decupajul.
                     Nu poate desena peste gaura fizică sau peste elementele
                     protejate ale sistemului.
                   </Caption>
