@@ -428,7 +428,8 @@ Reminder titles use the full panel width, with time presets on a separate row.
 Android 0.2.1 adds an opt-in “Merg la baie” shake gesture under Voice & PC: with
 the overlay active and phone screen on, three firm shakes request the paired
 PC's registered lock action. It requires an online PC with reception enabled,
-does not retry offline commands, and has a 15 second cooldown.
+does not retry offline commands, and allows consecutive three-shake sequences
+without a command cooldown (only individual movement peaks are debounced).
 
 The GNOME workspace uses a 520×340 default, with a fixed top toolbar and a
 vertically scrollable content area. Larger forms and all registered phone
