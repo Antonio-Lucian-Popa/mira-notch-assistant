@@ -317,6 +317,10 @@ class Notch extends St.Bin {
         this._headerViz = this._buildVisualizer('mira-header-viz', this._tokens.visualizer?.bars ?? 7);
 
         this._headerEyes = this._buildEyes();
+        // Left cluster (mockup): live ring + page title ("Shelf", "TodoList", …)
+        // + the mascot eyes. Music leaves the title empty so only ring + eyes show.
+        this._header.add_child(this._ring);
+        this._header.add_child(this._pageTitle);
         this._header.add_child(this._headerEyes);
         this._tabsBox = new St.BoxLayout({style_class:'mira-top-tabs',y_align:Clutter.ActorAlign.CENTER});
         this._tabActors = [];
@@ -364,6 +368,8 @@ class Notch extends St.Bin {
         this._tabsBox.add_child(this._moreButton);
         this._tabsBox.x_expand = true;
         this._header.add_child(this._tabsBox);
+        // Right cluster (mockup): music visualizer bars + the date/time stamp.
+        this._header.add_child(this._headerViz);
         const stamp=new St.BoxLayout({vertical:true,width:60,x_expand:false,y_align:Clutter.ActorAlign.CENTER,style_class:'mira-header-stamp'});
         stamp.add_child(this._time);stamp.add_child(this._date);this._header.add_child(stamp);
     }
@@ -433,7 +439,16 @@ class Notch extends St.Bin {
         return box;
     }
 
-    _buildDots() {this._dotActors=[];}
+    _buildDots() {
+        // Bottom page indicator (mockup): one dot per page, the active one a
+        // short white pill. setPage() toggles the `active` class.
+        this._dotActors = [];
+        for (let i = 0; i < PAGES.length; i++) {
+            const dot = new St.Widget({style_class: 'mira-dot'});
+            this._dotActors.push(dot);
+            this._dots.add_child(dot);
+        }
+    }
 
     // --- Music page ---
     _buildMusicPage() {
@@ -454,6 +469,7 @@ class Notch extends St.Bin {
         this._btnExpand.connect('clicked', () => this.setPage(PAGES.indexOf('lyrics')));
         top.add_child(this._art);
         top.add_child(info);
+        top.add_child(this._btnExpand);
 
         // Progress row.
         const prog = new St.BoxLayout({style_class: 'mira-prog-row', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
@@ -478,6 +494,8 @@ class Notch extends St.Bin {
         transport.add_child(this._btnPrev);
         transport.add_child(this._btnPlay);
         transport.add_child(this._btnNext);
+        // Ghost action pinned bottom-left (mockup), transport centered between spacers.
+        controls.add_child(this._btnLyrics);
         controls.add_child(spacerL);
         controls.add_child(transport);
         controls.add_child(spacerR);
