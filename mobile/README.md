@@ -93,7 +93,8 @@ for a surprise execution later. “Accepted” is queue acknowledgement; the tar
 may reserve or ignore a combination. Revoking on the desktop invalidates pairing.
 
 The camera notch uses reported display-cutout geometry: a black tab attached to
-the top edge, curved shoulders, two blinking white eyes below the lens, and a
+the top edge, a decorative full-width black status backdrop, curved
+shoulders, two blinking white eyes below the lens, and a
 wide cyan glow along its rounded bottom. X/Y calibration and scale remain
 available; upward calibration keeps the eyes below the camera. The ordinary
 capsule remains the fallback for landscape, off-center/wide cutouts or missing

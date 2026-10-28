@@ -13,6 +13,8 @@ class CameraNotchLayoutTest {
             assertTrue(g.eyeY+6*g.unit<g.height)
             assertTrue(g.width<1236-2*100)
             assertTrue(g.height<300)
+            assertTrue(g.height-g.shoulderY<=29*g.unit)
+            assertTrue(g.width<=129*g.unit)
         }
     }
     @Test fun upwardCalibrationCannotPutEyesOnTheCamera() {
