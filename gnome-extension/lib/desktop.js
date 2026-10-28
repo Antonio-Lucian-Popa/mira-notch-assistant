@@ -83,7 +83,10 @@ export class Desktop {
         this.menu.addAction('Mai mare ＋', () => this.resizeBy(1.1)); this.menu.addAction('Mai mic −', () => this.resizeBy(.9));
         this.menu.addAction('Pauză / reia clipboard', () => {this.state.capture = !this.state.capture; this.client.workspace('Capture', [this.state.capture], () => this.refresh());});
         this.menu.addAction('Șterge memoria temporară', () => this.clear());
+        // Resize grip only makes sense on the detached (floating) workspace; in
+        // the default docked notch it is hidden so the pill stays clean.
         this.grip = new St.Label({text: '◢', style_class: 'mira-work-grip', reactive: true, x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.END});
+        this.grip.visible = this.mode !== 'docked';
         const footer = new St.BoxLayout({x_expand:true});
         this.n._openBox.remove_child(this.n._dots);
         footer.add_child(new St.Widget({x_expand:true})); footer.add_child(this.n._dots);
@@ -105,9 +108,10 @@ export class Desktop {
         this.refresh();
     }
     openPage(name) { this.n.setPage(this.n._pageNames.indexOf(name)); this.n.open(); this.refresh(); }
-    setMode(mode) {this.mode = mode; this.settings.set_string('desktop-motion', mode); this.n.add_style_class_name('mira-floating');}
+    setMode(mode) {this.mode = mode; this.settings.set_string('desktop-motion', mode); this.n.add_style_class_name('mira-floating'); if (this.grip) this.grip.visible = mode !== 'docked';}
     home() {
         this.setMode('docked'); this.drag = null; this.grab?.dismiss(); this.grab = null;
+        if (this.grip) this.grip.visible = false;
         this.n.close(); this.n._reposition(this.n._closed.w); this.n.remove_style_class_name('mira-floating');
     }
     bounds(x, y) {return Main.layoutManager.monitors.find(m => x >= m.x && x < m.x+m.width && y >= m.y && y < m.y+m.height) ?? Main.layoutManager.primaryMonitor;}

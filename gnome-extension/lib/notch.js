@@ -200,6 +200,18 @@ class Notch extends St.Bin {
         });
         this.set_child(this._stack);
 
+        // Cairo-drawn notch silhouette (behind everything): a flat top that
+        // merges with the dark panel, convex rounded bottom, and small concave
+        // "wing" corners at the top so the pill reads as a dynamic island
+        // hanging from the bar. Only used in integrated+docked mode; otherwise
+        // the CSS rounded-pill background shows through (see _shapeActive).
+        this._shapeArea = new St.DrawingArea({x_expand: true, y_expand: true, reactive: false});
+        this._shapeArea.connect('repaint', () => this._drawShape());
+        this._stack.insert_child_at_index(this._shapeArea, 0);
+        // Redraw the silhouette as the pill grows/shrinks during open/close.
+        this.connect('notify::width', () => this._shapeArea?.queue_repaint());
+        this.connect('notify::height', () => this._shapeArea?.queue_repaint());
+
         // Closed view: clock, or mini music (art dot + visualizer), or eyes.
         this._closedBox = new St.BoxLayout({
             style_class: 'mira-closed',
@@ -282,6 +294,16 @@ class Notch extends St.Bin {
         this._stack.add_child(this._openBox);
         this._stack.add_child(this._alertBox);
         this._stack.add_child(this._greetBox);
+
+        // Soft cyan "light" that glows up from under the mascot eyes on the
+        // closed pill (mockup). It sits at the bottom-center behind the eyes and
+        // is shown only while the closed view is up and the eyes are visible.
+        this._eyeGlow = new St.Widget({style_class: 'mira-eye-glow', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.END});
+        this._stack.insert_child_below(this._eyeGlow, this._closedBox);
+        this._eyeGlow.hide();
+        this._closedBox.connect('notify::visible', () => {
+            if (this._eyeGlow) this._eyeGlow.visible = this._closedBox.visible && this._eyes.visible;
+        });
 
         // Overlay for transient particle effects (hearts, confetti). Free
         // positioning (no layout manager), non-reactive, drawn on top.
@@ -390,6 +412,45 @@ class Notch extends St.Bin {
         cr.$dispose();
     }
 
+    // The cairo notch silhouette is used only when the pill is docked at the
+    // top in integrated mode — the one layout where the "dynamic island hanging
+    // from the bar" shape makes sense. Elsewhere (floating/follow/roam) the CSS
+    // rounded pill is kept.
+    _shapeActive() {
+        const motion = this._desktop ? this._desktop.mode : this._settings.get_string('desktop-motion');
+        return this._settings.get_string('mode') === 'integrated' && motion === 'docked';
+    }
+
+    _drawShape() {
+        const cr = this._shapeArea.get_context();
+        const [w, h] = this._shapeArea.get_surface_size();
+        // Always start from a clean transparent surface.
+        cr.save();
+        cr.setOperator(cairo.Operator.CLEAR);
+        cr.paint();
+        cr.restore();
+        if (!this._shapeActive() || w < 4 || h < 4) {
+            cr.$dispose();
+            return;
+        }
+        const rb = Math.max(2, Math.min(this._curRadius || 18, w / 2 - 1, h / 2 - 1)); // bottom convex
+        const rw = Math.max(2, Math.min(14, w / 2 - rb - 1, h / 2 - 1));               // top concave wings
+        cr.newSubPath();
+        cr.moveTo(rw, 0);                                   // flat top edge, necked by the wings
+        cr.lineTo(w - rw, 0);
+        cr.arcNegative(w, 0, rw, Math.PI, Math.PI / 2);     // top-right concave wing
+        cr.lineTo(w, h - rb);
+        cr.arc(w - rb, h - rb, rb, 0, Math.PI / 2);         // bottom-right convex
+        cr.lineTo(rb, h);
+        cr.arc(rb, h - rb, rb, Math.PI / 2, Math.PI);       // bottom-left convex
+        cr.lineTo(0, rw);
+        cr.arcNegative(0, 0, rw, Math.PI / 2, 0);           // top-left concave wing
+        cr.closePath();
+        cr.setSourceRGBA(9 / 255, 9 / 255, 11 / 255, 0.98);
+        cr.fill();
+        cr.$dispose();
+    }
+
     _buildVisualizer(klass, n) {
         const box = new St.BoxLayout({style_class: klass, y_align: Clutter.ActorAlign.CENTER});
         box._bars = [];
@@ -439,16 +500,10 @@ class Notch extends St.Bin {
         return box;
     }
 
-    _buildDots() {
-        // Bottom page indicator (mockup): one dot per page, the active one a
-        // short white pill. setPage() toggles the `active` class.
-        this._dotActors = [];
-        for (let i = 0; i < PAGES.length; i++) {
-            const dot = new St.Widget({style_class: 'mira-dot'});
-            this._dotActors.push(dot);
-            this._dots.add_child(dot);
-        }
-    }
+    // Bottom page dots were removed by request: with 12 pages they were just
+    // decorative (not clickable) and cluttered the docked notch. The `_dots`
+    // container stays (the desktop footer still lays it out) but holds nothing.
+    _buildDots() {this._dotActors = []; this._dots.hide();}
 
     // --- Music page ---
     _buildMusicPage() {
@@ -964,9 +1019,11 @@ class Notch extends St.Bin {
         this._reminderBadge.label = state ? `◷ ${state.remaining ? state.countdown : 'Acum'}` : '';
         this._reminderBadge.accessible_name = next ? `${next.text}, ${state.countdown}` : '';
         this._reminderBadge.style_class = `mira-reminder-badge ${this._reminderUrgency}`;
-        const color = {calm: (THEMES[this._settings.get_string('mascot-theme')] ?? THEMES.classic).color, soon: '#FFB65C', urgent: '#FF7878', due: '#FF7878'}[this._reminderUrgency];
+        // Only the warning colors are forced inline; a calm (or no) reminder
+        // leaves the eyes on their white stylesheet look from the mockup.
+        const color = {soon: '#FFB65C', urgent: '#FF7878', due: '#FF7878'}[this._reminderUrgency];
         for (const eye of this._eyes._eyes)
-            eye.set_style(next ? `background-color:${color}; box-shadow:0 0 7px 0 ${color};` : '');
+            eye.set_style(next && color ? `background-color:${color}; box-shadow:0 0 7px 0 ${color};` : '');
         for (const {reminder, row, time} of this._reminderRows) {
             const item = reminderState(reminder, now);
             time.text = item.remaining ? item.countdown : 'Acum';
@@ -1401,13 +1458,14 @@ class Notch extends St.Bin {
         const x = this._desktop?.mode !== 'docked' ? this.x : monitor ? Math.round(monitor.x + (monitor.width - size.w) / 2) : this.x;
         this._curRadius = this._desktop?.mode === 'docked' ? 18 : size.r;
         this.set_style(this._rootStyle(this._curRadius));
+        this._shapeArea?.queue_repaint();
         this.ease({
             x,
             width: size.w,
             height: size.h,
             duration,
             mode,
-            onComplete: () => onComplete && onComplete(),
+            onComplete: () => { this._shapeArea?.queue_repaint(); onComplete && onComplete(); },
         });
     }
 
@@ -1722,6 +1780,7 @@ class Notch extends St.Bin {
         this._viz.visible = showViz;
         this._clock.visible = !showEyes && !showViz;
         this._reminderBadge.visible = pending && !minimal;
+        if (this._eyeGlow) this._eyeGlow.visible = showEyes && this._closedBox.visible;
 
         if (showEyes && !this._open)
             this._startEyeLife();
@@ -2269,6 +2328,10 @@ class Notch extends St.Bin {
     // The root pill's inline style: border-radius plus, when enabled, a soft
     // colored halo from the cover art. Inline style always wins over the sheet.
     _rootStyle(radius) {
+        // When the cairo silhouette draws the notch, keep the St surface fully
+        // clear so only the drawn shape (with its concave wings) is visible.
+        if (this._shapeActive())
+            return 'background-color:transparent; border:none; box-shadow:none; border-radius:0;';
         let s = `border-radius:${radius}px;`;
         if (this._glowRGB && this._settings.get_boolean('album-glow') && this._playing) {
             const [r, g, b] = this._glowRGB;
@@ -2831,6 +2894,10 @@ class Notch extends St.Bin {
         this.set_size(size.w, size.h);
         this._reposition(size.w);
         this._refreshMedia();
+        // Re-apply the root style and repaint the silhouette in case the mode
+        // (integrated/floating, docked/roam) just changed which look applies.
+        this.set_style(this._rootStyle(this._curRadius));
+        this._shapeArea?.queue_repaint();
         this._applyGlow();
         this._applyHiddenPages();
         // Honor a toggled groove / motion change without waiting for a track.

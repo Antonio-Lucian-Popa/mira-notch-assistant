@@ -653,7 +653,9 @@ impl Host {
                         "robot" => rgb(118, 245, 191),
                         "cat" => rgb(255, 207, 119),
                         "pixel" => rgb(197, 160, 255),
-                        _ => rgb(143, 176, 255),
+                        // Classic: bright white eyes to match the mockup (the
+                        // GNOME notch pairs these with a cyan under-glow).
+                        _ => rgb(255, 255, 255),
                     },
                 }
             };
