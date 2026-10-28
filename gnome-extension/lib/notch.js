@@ -283,6 +283,16 @@ class Notch extends St.Bin {
         this._stack.add_child(this._alertBox);
         this._stack.add_child(this._greetBox);
 
+        // Soft cyan "light" that glows up from under the mascot eyes on the
+        // closed pill (mockup). It sits at the bottom-center behind the eyes and
+        // is shown only while the closed view is up and the eyes are visible.
+        this._eyeGlow = new St.Widget({style_class: 'mira-eye-glow', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.END});
+        this._stack.insert_child_below(this._eyeGlow, this._closedBox);
+        this._eyeGlow.hide();
+        this._closedBox.connect('notify::visible', () => {
+            if (this._eyeGlow) this._eyeGlow.visible = this._closedBox.visible && this._eyes.visible;
+        });
+
         // Overlay for transient particle effects (hearts, confetti). Free
         // positioning (no layout manager), non-reactive, drawn on top.
         this._fxLayer = new St.Widget({x_expand: true, y_expand: true, reactive: false});
@@ -439,16 +449,10 @@ class Notch extends St.Bin {
         return box;
     }
 
-    _buildDots() {
-        // Bottom page indicator (mockup): one dot per page, the active one a
-        // short white pill. setPage() toggles the `active` class.
-        this._dotActors = [];
-        for (let i = 0; i < PAGES.length; i++) {
-            const dot = new St.Widget({style_class: 'mira-dot'});
-            this._dotActors.push(dot);
-            this._dots.add_child(dot);
-        }
-    }
+    // Bottom page dots were removed by request: with 12 pages they were just
+    // decorative (not clickable) and cluttered the docked notch. The `_dots`
+    // container stays (the desktop footer still lays it out) but holds nothing.
+    _buildDots() {this._dotActors = []; this._dots.hide();}
 
     // --- Music page ---
     _buildMusicPage() {
@@ -964,9 +968,11 @@ class Notch extends St.Bin {
         this._reminderBadge.label = state ? `◷ ${state.remaining ? state.countdown : 'Acum'}` : '';
         this._reminderBadge.accessible_name = next ? `${next.text}, ${state.countdown}` : '';
         this._reminderBadge.style_class = `mira-reminder-badge ${this._reminderUrgency}`;
-        const color = {calm: (THEMES[this._settings.get_string('mascot-theme')] ?? THEMES.classic).color, soon: '#FFB65C', urgent: '#FF7878', due: '#FF7878'}[this._reminderUrgency];
+        // Only the warning colors are forced inline; a calm (or no) reminder
+        // leaves the eyes on their white stylesheet look from the mockup.
+        const color = {soon: '#FFB65C', urgent: '#FF7878', due: '#FF7878'}[this._reminderUrgency];
         for (const eye of this._eyes._eyes)
-            eye.set_style(next ? `background-color:${color}; box-shadow:0 0 7px 0 ${color};` : '');
+            eye.set_style(next && color ? `background-color:${color}; box-shadow:0 0 7px 0 ${color};` : '');
         for (const {reminder, row, time} of this._reminderRows) {
             const item = reminderState(reminder, now);
             time.text = item.remaining ? item.countdown : 'Acum';
@@ -1722,6 +1728,7 @@ class Notch extends St.Bin {
         this._viz.visible = showViz;
         this._clock.visible = !showEyes && !showViz;
         this._reminderBadge.visible = pending && !minimal;
+        if (this._eyeGlow) this._eyeGlow.visible = showEyes && this._closedBox.visible;
 
         if (showEyes && !this._open)
             this._startEyeLife();
