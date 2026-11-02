@@ -16,6 +16,20 @@ use windows_sys::Win32::{
     UI::{Controls::EM_SETLIMITTEXT, Shell::*, WindowsAndMessaging::*},
 };
 
+/// Read-only snapshot of messaging + AI settings for the Windows status pages.
+/// Built by the host from `Config`; keeps `Desktop::paint` free of config access.
+#[derive(Default, Clone)]
+pub struct IntegrationInfo {
+    pub messaging_enabled: bool,
+    pub gateway_url: String,
+    pub ai_enabled: bool,
+    pub ai_provider: String,
+    pub ai_model: String,
+    pub ai_endpoint: String,
+    pub ai_needs_key: bool,
+    pub ai_key_env: String,
+}
+
 pub struct Desktop {
     pub receiver: Option<mira_core::bridge::Receiver>,
     pub phone_name: HWND,
@@ -392,7 +406,15 @@ impl Desktop {
         SendMessageW(self.list, LB_RESETCONTENT, 0, 0);
         self.status = "Memoria temporară a fost golită. Originalele sunt intacte.".into();
     }
-    pub unsafe fn paint(&self, dc: HDC, scale: f32, gaze: (f32, f32), page: usize, t: f32) {
+    pub unsafe fn paint(
+        &self,
+        dc: HDC,
+        scale: f32,
+        gaze: (f32, f32),
+        page: usize,
+        t: f32,
+        info: &IntegrationInfo,
+    ) {
         let w = self.width;
         let h = self.height;
         // All rendering is in logical pixels, with GDI mapped once for DPI.
@@ -516,6 +538,112 @@ impl Desktop {
                     color(200, 222, 232),
                 );
             }
+        }
+        if page == 10 {
+            // Messaging status (full inbox + reply lives on the GNOME build).
+            label(
+                dc,
+                "Mesaje · WhatsApp (experimental)",
+                22,
+                70,
+                w as i32 - 20,
+                96,
+                14,
+                color(143, 176, 255),
+            );
+            label(
+                dc,
+                &format!("Gateway local: {}", info.gateway_url),
+                22,
+                100,
+                w as i32 - 20,
+                124,
+                11,
+                color(184, 209, 255),
+            );
+            label(
+                dc,
+                if info.messaging_enabled {
+                    "Status: activat în config.toml"
+                } else {
+                    "Status: dezactivat · pune messaging_enabled = true în config.toml"
+                },
+                22,
+                128,
+                w as i32 - 20,
+                152,
+                12,
+                color(133, 239, 183),
+            );
+            label(
+                dc,
+                "Inbox + răspuns din notch: pe build-ul Linux/GNOME. Pe Windows urmează.",
+                22,
+                158,
+                w as i32 - 20,
+                198,
+                11,
+                color(145, 170, 190),
+            );
+        } else if page == 11 {
+            // AI assistant status (chat lives on the GNOME build).
+            label(
+                dc,
+                "Asistent AI",
+                22,
+                70,
+                w as i32 - 20,
+                96,
+                14,
+                color(143, 176, 255),
+            );
+            label(
+                dc,
+                &format!("{} · {}", info.ai_provider, info.ai_model),
+                22,
+                100,
+                w as i32 - 20,
+                124,
+                12,
+                color(184, 209, 255),
+            );
+            label(
+                dc,
+                &format!("Endpoint: {}", info.ai_endpoint),
+                22,
+                126,
+                w as i32 - 20,
+                148,
+                11,
+                color(184, 209, 255),
+            );
+            let status = if !info.ai_enabled {
+                "Status: dezactivat · pune ai_enabled = true în config.toml".to_string()
+            } else if info.ai_needs_key {
+                format!("Necesită cheia în variabila ${}", info.ai_key_env)
+            } else {
+                "Pregătit (Ollama local, fără cheie)".to_string()
+            };
+            label(
+                dc,
+                &status,
+                22,
+                152,
+                w as i32 - 20,
+                176,
+                12,
+                color(133, 239, 183),
+            );
+            label(
+                dc,
+                "Chat din notch: pe build-ul Linux/GNOME. Pe Windows urmează.",
+                22,
+                180,
+                w as i32 - 20,
+                214,
+                11,
+                color(145, 170, 190),
+            );
         }
         if page == 5 {
             if self.state.links.is_empty() {

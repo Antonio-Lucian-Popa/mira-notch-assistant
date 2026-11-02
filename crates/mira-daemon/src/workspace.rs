@@ -1,4 +1,8 @@
+use mira_core::ai::{self, AiClient, AiConversation};
+use mira_core::messaging::{GatewayClient, Inbox};
+use mira_core::store::Config;
 use mira_core::workspace::{self, Workspace};
+use serde_json::json;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -10,6 +14,36 @@ pub struct WorkspaceIface {
     state: Arc<Mutex<Workspace>>,
     generation: Arc<AtomicU64>,
     receiver: Mutex<Option<mira_core::bridge::Receiver>>,
+    /// Multi-turn history for the AI assistant page (in memory only).
+    assistant: Mutex<AiConversation>,
+}
+
+/// Load `config.toml` fresh so edits (provider, endpoint, enable flags) are
+/// picked up without restarting the daemon. Falls back to defaults on error.
+fn load_config() -> Config {
+    mira_core::store::config_path()
+        .and_then(|p| Config::load_or_default(&p))
+        .unwrap_or_default()
+}
+
+/// JSON snapshot of the assistant conversation plus provider readiness.
+fn assistant_json(conv: &AiConversation, cfg: &Config, error: Option<String>) -> String {
+    let ai_cfg = cfg.ai_config();
+    let needs_key = ai_cfg.kind.requires_key();
+    let ready = cfg.ai_enabled && (!needs_key || ai::resolve_key(&ai_cfg).is_some());
+    json!({
+        "enabled": cfg.ai_enabled,
+        "provider": ai_cfg.kind.label(),
+        "model": ai_cfg.model,
+        "endpoint": ai_cfg.base_url(),
+        "needs_key": needs_key,
+        "key_env": ai_cfg.api_key_env,
+        "ready": ready,
+        "pending": conv.pending,
+        "messages": conv.messages,
+        "error": error,
+    })
+    .to_string()
 }
 impl WorkspaceIface {
     pub fn new() -> Self {
@@ -127,5 +161,169 @@ impl WorkspaceIface {
         })
         .await
         .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    }
+
+    // --- messaging (opt-in local gateway, e.g. an unofficial WhatsApp bridge) ---
+
+    /// Gateway connection status (and a pending QR when linking).
+    async fn messaging_status(&self) -> String {
+        let cfg = load_config();
+        if !cfg.messaging_enabled {
+            return json!({"enabled": false}).to_string();
+        }
+        let base = cfg.messaging_gateway_url.clone();
+        let provider = cfg.messaging_provider.label();
+        match GatewayClient::with_base(&base) {
+            Ok(client) => match client.status().await {
+                Ok(status) => {
+                    json!({"enabled": true, "provider": provider, "gateway": base, "status": status})
+                        .to_string()
+                }
+                Err(e) => json!({"enabled": true, "provider": provider, "gateway": base,
+                    "status": {"state": "disconnected"}, "error": e.to_string()})
+                .to_string(),
+            },
+            Err(e) => json!({"enabled": true, "error": e.to_string()}).to_string(),
+        }
+    }
+
+    /// One-line-per-chat inbox snapshot, most recent first.
+    async fn inbox(&self) -> String {
+        let cfg = load_config();
+        if !cfg.messaging_enabled {
+            return json!({"enabled": false, "chats": []}).to_string();
+        }
+        let base = cfg.messaging_gateway_url.clone();
+        let client = match GatewayClient::with_base(&base) {
+            Ok(c) => c,
+            Err(e) => {
+                return json!({"enabled": true, "chats": [], "error": e.to_string()}).to_string()
+            }
+        };
+        let status = client.status().await.unwrap_or_default();
+        match client.conversations().await {
+            Ok(convs) => {
+                let inbox = Inbox {
+                    provider: cfg.messaging_provider,
+                    status,
+                    conversations: convs,
+                };
+                json!({
+                    "enabled": true,
+                    "provider": cfg.messaging_provider.label(),
+                    "status": inbox.status,
+                    "total_unread": inbox.total_unread(),
+                    "chats": inbox.one_line_per_chat(),
+                })
+                .to_string()
+            }
+            Err(e) => {
+                json!({"enabled": true, "status": status, "chats": [], "error": e.to_string()})
+                    .to_string()
+            }
+        }
+    }
+
+    /// Full message list for a single conversation.
+    async fn thread(&self, conversation_id: String) -> String {
+        let cfg = load_config();
+        if !cfg.messaging_enabled {
+            return json!({"enabled": false, "messages": []}).to_string();
+        }
+        let client = match GatewayClient::with_base(&cfg.messaging_gateway_url) {
+            Ok(c) => c,
+            Err(e) => return json!({"messages": [], "error": e.to_string()}).to_string(),
+        };
+        match client.conversations().await {
+            Ok(convs) => match convs.into_iter().find(|c| c.id == conversation_id) {
+                Some(conv) => json!({
+                    "id": conv.id,
+                    "title": conv.title,
+                    "muted": conv.muted,
+                    "messages": conv.messages,
+                })
+                .to_string(),
+                None => json!({"error": "conversation not found", "messages": []}).to_string(),
+            },
+            Err(e) => json!({"messages": [], "error": e.to_string()}).to_string(),
+        }
+    }
+
+    /// Send a reply into a conversation through the gateway.
+    async fn send_reply(&self, conversation_id: String, text: String) -> String {
+        let cfg = load_config();
+        if !cfg.messaging_enabled {
+            return json!({"ok": false, "error": "messaging is disabled"}).to_string();
+        }
+        if text.trim().is_empty() {
+            return json!({"ok": false, "error": "empty message"}).to_string();
+        }
+        let client = match GatewayClient::with_base(&cfg.messaging_gateway_url) {
+            Ok(c) => c,
+            Err(e) => return json!({"ok": false, "error": e.to_string()}).to_string(),
+        };
+        match client.send(&conversation_id, &text).await {
+            Ok(()) => json!({"ok": true}).to_string(),
+            Err(e) => json!({"ok": false, "error": e.to_string()}).to_string(),
+        }
+    }
+
+    // --- AI assistant (opt-in; local Ollama or the user's own API key) ---
+
+    /// Current assistant conversation + provider readiness.
+    async fn assistant_state(&self) -> String {
+        let cfg = load_config();
+        let conv = self.assistant.lock().await;
+        assistant_json(&conv, &cfg, None)
+    }
+
+    /// Ask the assistant a question; returns the updated conversation.
+    async fn ask(&self, prompt: String) -> String {
+        let cfg = load_config();
+        if !cfg.ai_enabled {
+            let conv = self.assistant.lock().await;
+            return assistant_json(&conv, &cfg, Some("the assistant is disabled".into()));
+        }
+        if prompt.trim().is_empty() {
+            let conv = self.assistant.lock().await;
+            return assistant_json(&conv, &cfg, None);
+        }
+
+        // Record the user turn and mark pending, then release the lock so a
+        // concurrent status poll can show the typing indicator while we wait.
+        let history = {
+            let mut conv = self.assistant.lock().await;
+            conv.push_user(prompt);
+            conv.pending = true;
+            conv.messages.clone()
+        };
+
+        let client = match AiClient::new(cfg.ai_config()) {
+            Ok(c) => c,
+            Err(e) => {
+                let mut conv = self.assistant.lock().await;
+                conv.pending = false;
+                return assistant_json(&conv, &cfg, Some(e.to_string()));
+            }
+        };
+
+        let result = client.complete(&history).await;
+        let mut conv = self.assistant.lock().await;
+        conv.pending = false;
+        match result {
+            Ok(reply) => {
+                conv.push_assistant(reply);
+                assistant_json(&conv, &cfg, None)
+            }
+            Err(e) => assistant_json(&conv, &cfg, Some(e.to_string())),
+        }
+    }
+
+    /// Clear the assistant conversation.
+    async fn assistant_reset(&self) -> String {
+        let cfg = load_config();
+        let mut conv = self.assistant.lock().await;
+        conv.reset();
+        assistant_json(&conv, &cfg, None)
     }
 }

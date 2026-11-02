@@ -625,6 +625,7 @@ impl Host {
         DeleteObject(bg);
         SetBkMode(buffer, TRANSPARENT as i32);
         if self.open && self.page >= 5 && self.preview.is_none() {
+            let integration = self.integration_info();
             self.desktop.paint(
                 buffer,
                 self.scale,
@@ -635,6 +636,7 @@ impl Host {
                 } else {
                     0.
                 },
+                &integration,
             );
         } else if !self.open || self.preview.is_some() {
             let next = self.reminders.first();
@@ -1083,6 +1085,20 @@ impl Host {
     unsafe fn text(&self, dc: HDC, value: &str, top: i32, bottom: i32, size: i32, color: u32) {
         self.text_with_left(dc, value, (top, bottom), (size, color), 14);
     }
+    /// Snapshot messaging + AI settings for the status pages (10 and 11).
+    fn integration_info(&self) -> crate::desktop::IntegrationInfo {
+        let ai = self.config.ai_config();
+        crate::desktop::IntegrationInfo {
+            messaging_enabled: self.config.messaging_enabled,
+            gateway_url: self.config.messaging_gateway_url.clone(),
+            ai_enabled: self.config.ai_enabled,
+            ai_provider: ai.kind.label().to_string(),
+            ai_model: ai.model.clone(),
+            ai_endpoint: ai.base_url(),
+            ai_needs_key: ai.kind.requires_key(),
+            ai_key_env: ai.api_key_env.clone(),
+        }
+    }
     unsafe fn text_with_left(
         &self,
         dc: HDC,
@@ -1413,6 +1429,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 (313, "Muzică / pagini clasice"),
                 (314, "Alege un folder…"),
                 (316, "Telefon · asociere și shortcuturi"),
+                (317, "Mesaje · WhatsApp (experimental)"),
+                (318, "Asistent AI · Ollama / cheie proprie"),
             ] {
                 AppendMenuW(menu, MF_STRING, id, wide(label).as_ptr());
             }
@@ -1567,6 +1585,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                                 s.page = 9;
                                 s.open = true;
                                 s.layout(hwnd);
+                            }
+                            317 | 318 => {
+                                // Messaging (10) / AI assistant (11) status pages.
+                                s.page = (choice - 307) as usize;
+                                s.open = true;
+                                s.layout(hwnd);
+                                SetForegroundWindow(hwnd);
                             }
                             314 => {
                                 PostMessageW(hwnd, WM_APP + 3, 0, 0);

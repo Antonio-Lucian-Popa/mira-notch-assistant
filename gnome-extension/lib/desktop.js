@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
 
-const WORK = ['shelf', 'notes', 'clipboard', 'search', 'phone'];
+const WORK = ['shelf', 'notes', 'clipboard', 'search', 'phone', 'messages', 'assistant'];
 export class Desktop {
     constructor(notch, client, settings, hooks) {
         this.n = notch; this.client = client; this.settings = settings; this.hooks = hooks;
@@ -69,6 +69,8 @@ export class Desktop {
         const results = new St.ScrollView({x_expand: true, y_expand: true});
         this.results = new St.BoxLayout({vertical: true, style_class: 'mira-work-cards'}); results.set_child(this.results); search.add_child(results);
         this.buildPhone();
+        this.buildMessages();
+        this.buildAssistant();
         this.remoteTimer=GLib.timeout_add(GLib.PRIORITY_DEFAULT,700,()=>{if(!this.alive)return GLib.SOURCE_REMOVE;if(this.phoneRunning)this.client.workspace('PhoneActions',[],jobs=>{if(this.alive&&Array.isArray(jobs))for(const job of jobs)this.executeRemote(job);});return GLib.SOURCE_CONTINUE;});
         this.menu = new PopupMenu.PopupMenu(this.n, .5, St.Side.TOP);
         Main.uiGroup.add_child(this.menu.actor); this.menu.actor.hide();
@@ -79,6 +81,8 @@ export class Desktop {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         for (const [label, page] of [['Raft de fișiere', 'shelf'], ['Sticky notepad', 'notes'], ['Clipboard', 'clipboard'], ['Caută în foldere', 'search']]) this.menu.addAction(label, () => this.openPage(page));
         this.menu.addAction('Telefon · asociere și taste',()=>this.openPage('phone'));
+        this.menu.addAction('Mesaje · WhatsApp (gateway local)',()=>this.openPage('messages'));
+        this.menu.addAction('Asistent AI · Ollama / cheie proprie',()=>this.openPage('assistant'));
         this.menu.addAction('Alege fișiere sau folder', () => this.dropPad('choose'));
         this.menu.addAction('Mai mare ＋', () => this.resizeBy(1.1)); this.menu.addAction('Mai mic −', () => this.resizeBy(.9));
         this.menu.addAction('Pauză / reia clipboard', () => {this.state.capture = !this.state.capture; this.client.workspace('Capture', [this.state.capture], () => this.refresh());});
@@ -221,7 +225,10 @@ export class Desktop {
     }
     add(paths) {this.client.workspace('AddPaths',[paths],state=>{if (!this.alive) return; this.state=state; this.render(); this.openPage('shelf');});}
     refresh() {
-        if(this.n._pageNames[this.n._page]==='phone'){this.client.workspace('PhoneState',[],data=>this.phoneRender(data));}
+        const page=this.n._pageNames[this.n._page];
+        if(page==='phone'){this.client.workspace('PhoneState',[],data=>this.phoneRender(data));}
+        if(page==='messages'){this.refreshInbox();}
+        if(page==='assistant'){this.refreshAssistant();}
         const gen=++this.refreshGeneration;
         this.client.workspace('Snapshot',[],state=>{if (!this.alive || gen!==this.refreshGeneration || state.error) return;
             this.state=state; this.render();
@@ -266,6 +273,167 @@ export class Desktop {
                 b.get_child().clutter_text.ellipsize=3; this.results.add_child(b);
             }
         });
+    }
+    // --- Messages page (one-line-per-chat inbox + thread with quick reply) ---
+    relTime(epoch){
+        if(!epoch) return '';
+        const d=Math.max(0,Math.floor(Date.now()/1000)-epoch);
+        if(d<60) return 'acum';
+        if(d<3600) return Math.floor(d/60)+'m';
+        if(d<86400) return Math.floor(d/3600)+'h';
+        return Math.floor(d/86400)+'z';
+    }
+    kindLabel(kind){
+        return {voice:'Mesaj vocal',image:'Poză',video:'Clip video',document:'Document',location:'Locație',sticker:'Sticker',other:'Mesaj'}[kind]||'';
+    }
+    buildMessages(){
+        const page=this.pages.messages;
+        const head=new St.BoxLayout({style_class:'mira-msg-head',x_expand:true});
+        this.msgBadge=this.label('● …','mira-status-badge'); this.msgBadge.x_expand=true; head.add_child(this.msgBadge);
+        head.add_child(this.button('Reîmprospătează',()=>this.refreshInbox(),'mira-phone-section'));
+        page.add_child(head);
+        this.msgHint=this.label('','mira-work-caption'); this.msgHint.clutter_text.line_wrap=true; page.add_child(this.msgHint);
+        // List mode.
+        this.msgListScroll=new St.ScrollView({x_expand:true,y_expand:true,hscrollbar_policy:St.PolicyType.NEVER,vscrollbar_policy:St.PolicyType.AUTOMATIC});
+        this.msgList=new St.BoxLayout({vertical:true,style_class:'mira-msg-list',x_expand:true});
+        this.msgListScroll.set_child(this.msgList); page.add_child(this.msgListScroll);
+        // Thread mode.
+        this.threadView=new St.BoxLayout({vertical:true,style_class:'mira-thread',x_expand:true,y_expand:true});
+        const thead=new St.BoxLayout({style_class:'mira-thread-head',x_expand:true});
+        thead.add_child(this.button('‹',()=>{this.thread=null; this.showMessagesMode();},'mira-thread-back'));
+        this.threadTitle=this.label('','mira-thread-title'); this.threadTitle.x_expand=true; thead.add_child(this.threadTitle);
+        this.threadView.add_child(thead);
+        this.threadScrollView=new St.ScrollView({x_expand:true,y_expand:true,hscrollbar_policy:St.PolicyType.NEVER,vscrollbar_policy:St.PolicyType.AUTOMATIC});
+        this.threadMsgs=new St.BoxLayout({vertical:true,style_class:'mira-thread-msgs',x_expand:true});
+        this.threadScrollView.set_child(this.threadMsgs); this.threadView.add_child(this.threadScrollView);
+        const replyRow=new St.BoxLayout({style_class:'mira-reply-row',x_expand:true});
+        this.replyEntry=new St.Entry({hint_text:'Scrie un răspuns… ↵ trimite',can_focus:true,x_expand:true,style_class:'mira-reply-entry'});
+        this.replyEntry.clutter_text.connect('activate',()=>this.sendReply());
+        replyRow.add_child(this.replyEntry);
+        replyRow.add_child(this.button('↑',()=>this.sendReply(),'mira-reply-send'));
+        this.threadView.add_child(replyRow);
+        page.add_child(this.threadView);
+        this.thread=null; this.msgListScroll.visible=true; this.threadView.visible=false;
+    }
+    showMessagesMode(){
+        const inThread=!!this.thread;
+        this.msgListScroll.visible=!inThread; this.threadView.visible=inThread;
+        this.refreshInbox();
+    }
+    refreshInbox(){
+        if(!this.alive) return;
+        if(this.thread) this.client.workspace('Thread',[this.thread],d=>this.renderThread(d));
+        else this.client.workspace('Inbox',[],d=>this.renderInbox(d));
+    }
+    renderInbox(data){
+        if(!this.alive||this.n._pageNames[this.n._page]!=='messages') return;
+        if(data.enabled===false){
+            this.msgBadge.text='● Dezactivat';
+            this.msgHint.text='Activează mesageria în config.toml: messaging_enabled = true. Apoi rulează un gateway local (ex. GOWA).';
+            this.msgList.destroy_all_children(); return;
+        }
+        const st=(data.status&&data.status.state)||'disconnected';
+        this.msgBadge.text={connected:'● Conectat',connecting:'● Conectare…',waiting_for_scan:'● Scanează QR',disconnected:'● Deconectat'}[st]||'● …';
+        if(data.error) this.msgHint.text='Gateway indisponibil: '+data.error+' · pornește-l pe '+(data.gateway||'');
+        else if(st==='waiting_for_scan') this.msgHint.text='WhatsApp › Dispozitive conectate › Conectează un dispozitiv. Cod: '+((data.status&&data.status.qr)||'');
+        else if(st==='connected') this.msgHint.text=(data.total_unread||0)+' necitite · '+(data.provider||'');
+        else this.msgHint.text='Neconectat la '+(data.provider||'gateway')+'.';
+        this.msgList.destroy_all_children();
+        for(const c of (data.chats||[])) this.msgList.add_child(this.chatRow(c));
+        if(!(data.chats||[]).length && st==='connected') this.msgList.add_child(this.label('Nicio conversație încă.'));
+    }
+    chatRow(c){
+        const row=new St.Button({style_class:'mira-chat-row'+(c.unread?' unread':''),can_focus:true,x_expand:true});
+        const box=new St.BoxLayout({x_expand:true,style_class:'mira-chat-row-box'});
+        box.add_child(new St.Label({text:c.initials||'·',style_class:'mira-chat-avatar'}));
+        const mid=new St.BoxLayout({vertical:true,x_expand:true,style_class:'mira-chat-mid'});
+        const top=new St.BoxLayout({x_expand:true});
+        const name=new St.Label({text:c.title||'',style_class:'mira-chat-name'}); name.x_expand=true; top.add_child(name);
+        top.add_child(new St.Label({text:this.relTime(c.timestamp_epoch),style_class:'mira-chat-time'}));
+        mid.add_child(top);
+        const prev=new St.Label({text:(c.outgoing_last?'Tu: ':(c.author?c.author+': ':''))+(c.preview||''),style_class:'mira-chat-preview'});
+        prev.clutter_text.ellipsize=Pango.EllipsizeMode.END; mid.add_child(prev);
+        box.add_child(mid);
+        if(c.unread) box.add_child(new St.Label({text:String(c.unread),style_class:'mira-chat-unread'}));
+        row.set_child(box);
+        row.connect('clicked',()=>{this.thread=c.id; this.threadTitle.text=c.title||''; this.showMessagesMode();});
+        return row;
+    }
+    renderThread(data){
+        if(!this.alive||!this.thread) return;
+        if(data.title) this.threadTitle.text=data.title;
+        this.threadMsgs.destroy_all_children();
+        if(data.error){ this.threadMsgs.add_child(this.label('Eroare: '+data.error)); return; }
+        for(const m of (data.messages||[])){
+            const out=m.direction==='outgoing';
+            const text=(m.body&&m.body.trim())?m.body:this.kindLabel(m.kind);
+            const bubble=new St.Label({text,style_class:'mira-bubble '+(out?'out':'in')});
+            bubble.clutter_text.line_wrap=true;
+            const wrap=new St.BoxLayout({x_expand:true,x_align:out?Clutter.ActorAlign.END:Clutter.ActorAlign.START});
+            wrap.add_child(bubble); this.threadMsgs.add_child(wrap);
+        }
+        this.later(30,()=>{if(this.threadScrollView) this.threadScrollView.vscroll.adjustment.value=this.threadScrollView.vscroll.adjustment.upper;});
+    }
+    sendReply(){
+        const text=this.replyEntry.get_text().trim();
+        if(!text||!this.thread) return;
+        this.replyEntry.set_text('');
+        this.client.workspace('SendReply',[this.thread,text],res=>{
+            if(!this.alive) return;
+            if(res&&res.ok===false&&res.error) this.threadMsgs.add_child(this.label('Trimitere eșuată: '+res.error));
+            this.later(250,()=>this.refreshInbox());
+        });
+    }
+    // --- Assistant page (chat with a local model or the user's own API) ---
+    buildAssistant(){
+        const page=this.pages.assistant;
+        const head=new St.BoxLayout({style_class:'mira-ai-head',x_expand:true});
+        this.aiBadge=this.label('● …','mira-status-badge'); this.aiBadge.x_expand=true; head.add_child(this.aiBadge);
+        head.add_child(this.button('Șterge',()=>this.client.workspace('AssistantReset',[],d=>this.renderAssistant(d)),'mira-phone-section'));
+        page.add_child(head);
+        this.aiScrollView=new St.ScrollView({x_expand:true,y_expand:true,hscrollbar_policy:St.PolicyType.NEVER,vscrollbar_policy:St.PolicyType.AUTOMATIC});
+        this.aiMsgs=new St.BoxLayout({vertical:true,style_class:'mira-ai-msgs',x_expand:true});
+        this.aiScrollView.set_child(this.aiMsgs); page.add_child(this.aiScrollView);
+        this.aiHint=this.label('','mira-work-caption'); this.aiHint.clutter_text.line_wrap=true; page.add_child(this.aiHint);
+        const row=new St.BoxLayout({style_class:'mira-reply-row',x_expand:true});
+        this.aiInput=new St.Entry({hint_text:'Întreabă Mira… ↵ trimite',can_focus:true,x_expand:true,style_class:'mira-reply-entry'});
+        this.aiInput.clutter_text.connect('activate',()=>this.askAssistant());
+        row.add_child(this.aiInput);
+        row.add_child(this.button('↑',()=>this.askAssistant(),'mira-reply-send'));
+        page.add_child(row);
+    }
+    refreshAssistant(){ if(this.alive) this.client.workspace('AssistantState',[],d=>this.renderAssistant(d)); }
+    appendAiBubble(role,text){
+        const out=role==='user';
+        const bubble=new St.Label({text,style_class:'mira-bubble '+(out?'out':'in')});
+        bubble.clutter_text.line_wrap=true;
+        const wrap=new St.BoxLayout({x_expand:true,x_align:out?Clutter.ActorAlign.END:Clutter.ActorAlign.START});
+        wrap.add_child(bubble); this.aiMsgs.add_child(wrap);
+    }
+    askAssistant(){
+        const text=this.aiInput.get_text().trim(); if(!text) return;
+        this.aiInput.set_text('');
+        this.appendAiBubble('user',text);
+        this.appendAiBubble('assistant','…');
+        this.aiHint.text='Mira scrie…';
+        this.later(30,()=>{if(this.aiScrollView) this.aiScrollView.vscroll.adjustment.value=this.aiScrollView.vscroll.adjustment.upper;});
+        this.client.workspace('Ask',[text],d=>this.renderAssistant(d));
+    }
+    renderAssistant(data){
+        if(!this.alive||this.n._pageNames[this.n._page]!=='assistant') return;
+        if(data.enabled===false){
+            this.aiBadge.text='● Dezactivat';
+            this.aiHint.text='Activează asistentul în config.toml: ai_enabled = true. Implicit folosește Ollama local (fără cheie).';
+            this.aiMsgs.destroy_all_children(); return;
+        }
+        this.aiBadge.text='● '+(data.ready?'Pregătit':'Neconfigurat')+' · '+(data.provider||'')+' · '+(data.model||'');
+        if(!data.ready&&data.needs_key) this.aiHint.text='Setează variabila $'+(data.key_env||'MIRA_AI_API_KEY')+' cu cheia ta și alege providerul în config.toml.';
+        else if(data.error) this.aiHint.text='Eroare: '+data.error;
+        else this.aiHint.text=data.pending?'Mira scrie…':'';
+        this.aiMsgs.destroy_all_children();
+        for(const m of (data.messages||[])){ if(m.role==='system') continue; this.appendAiBubble(m.role,m.content); }
+        if(data.pending) this.appendAiBubble('assistant','…');
+        this.later(30,()=>{if(this.aiScrollView) this.aiScrollView.vscroll.adjustment.value=this.aiScrollView.vscroll.adjustment.upper;});
     }
     buildPhone(){
         const page=this.pages.phone;
