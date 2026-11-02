@@ -23,6 +23,7 @@ const IFACE = {
     reminders: 'ro.novabytecode.Mira.Reminders',
     summary: 'ro.novabytecode.Mira.Summary',
     workspace: 'ro.novabytecode.Mira.Workspace',
+    agents: 'ro.novabytecode.Mira.Agents',
 };
 
 export class MiraClient {
@@ -285,6 +286,15 @@ export class MiraClient {
     workspace(method, args, cb = () => {}) {
         const types = {PhoneSetShake:'(ss)',PhoneAddAction:'(ss)',PhoneRemoveAction:'(s)',AddPaths: '(as)', Note: '(s)', PushClip: '(s)', Capture: '(b)', Remove: '(s)', Search: '(s)', Thread:'(s)', SendReply:'(ss)', Ask:'(s)'};
         this._callRet('workspace', method, types[method] ? new GLib.Variant(types[method], args) : null,
+            ret => {try {cb(ret.n_children() ? JSON.parse(ret.deepUnpack()[0]) : {});} catch {cb({});}},
+            e => cb({error: String(e)}));
+    }
+
+    // Agent monitoring (ro.novabytecode.Mira.Agents): State, Respond(id,decision,always),
+    // InstallHooks, HooksStatus — all return a JSON string.
+    agents(method, args, cb = () => {}) {
+        const types = {Respond: '(ssb)'};
+        this._callRet('agents', method, types[method] ? new GLib.Variant(types[method], args) : null,
             ret => {try {cb(ret.n_children() ? JSON.parse(ret.deepUnpack()[0]) : {});} catch {cb({});}},
             e => cb({error: String(e)}));
     }

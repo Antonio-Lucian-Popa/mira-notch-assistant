@@ -31,6 +31,7 @@ The package installs:
 | Path | What |
 |------|------|
 | `/usr/bin/mira-daemon` | the daemon binary (release, stripped) |
+| `/usr/bin/mira-hook` | the Claude Code hook relay (the daemon looks for it beside itself) |
 | `/usr/lib/systemd/user/mira-daemon.service` | systemd **user** unit (`Type=dbus`) |
 | `/usr/share/dbus-1/services/ro.novabytecode.Mira.service` | D-Bus activation (`SystemdService=`) |
 | `/usr/share/gnome-shell/extensions/mira@novabytecode.ro/` | the GNOME extension |

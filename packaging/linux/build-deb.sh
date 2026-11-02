@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Build a .deb that installs the Mira daemon, its systemd user unit + D-Bus
-# activation file, and the GNOME Shell extension. extensions.gnome.org cannot
-# host the daemon binary, so the .deb is how Mira ships on Ubuntu.
+# Build a .deb that installs the Mira daemon, the mira-hook relay (for Claude
+# Code agent monitoring), its systemd user unit + D-Bus activation file, and the
+# GNOME Shell extension. extensions.gnome.org cannot host the daemon binary, so
+# the .deb is how Mira ships on Ubuntu.
 #
 #   ./build-deb.sh            build target/debian/mira_<ver>_amd64.deb
 #
@@ -20,8 +21,8 @@ PKG="mira_${VERSION}_${ARCH}"
 BUILD="$HERE/build/$PKG"
 OUT="$REPO_ROOT/target/debian"
 
-echo "==> Building mira-daemon (release)"
-cargo build --release -p mira-daemon --manifest-path "$REPO_ROOT/Cargo.toml"
+echo "==> Building mira-daemon + mira-hook (release)"
+cargo build --release -p mira-daemon -p mira-hook --manifest-path "$REPO_ROOT/Cargo.toml"
 
 echo "==> Preparing extension payload"
 bash "$REPO_ROOT/gnome-extension/build.sh" >/dev/null
@@ -36,6 +37,9 @@ mkdir -p \
     "$BUILD/usr/share/gnome-shell/extensions/$UUID"
 
 install -m 0755 "$REPO_ROOT/target/release/mira-daemon" "$BUILD/usr/bin/mira-daemon"
+# The hook relay Claude Code runs; the daemon looks for it next to itself,
+# so it must sit beside mira-daemon in /usr/bin.
+install -m 0755 "$REPO_ROOT/target/release/mira-hook" "$BUILD/usr/bin/mira-hook"
 install -m 0755 "$HERE/mira-add" "$BUILD/usr/bin/mira-add"
 install -m 0644 "$HERE/systemd/mira-daemon.service" "$BUILD/usr/lib/systemd/user/mira-daemon.service"
 install -m 0644 "$HERE/dbus/ro.novabytecode.Mira.service" "$BUILD/usr/share/dbus-1/services/ro.novabytecode.Mira.service"

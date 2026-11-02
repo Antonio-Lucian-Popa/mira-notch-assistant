@@ -10,7 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as PointerWatcher from 'resource:///org/gnome/shell/ui/pointerWatcher.js';
 
-const WORK = ['shelf', 'notes', 'clipboard', 'search', 'phone', 'messages', 'assistant'];
+const WORK = ['shelf', 'notes', 'clipboard', 'search', 'phone', 'messages', 'assistant', 'agents'];
 export class Desktop {
     constructor(notch, client, settings, hooks) {
         this.n = notch; this.client = client; this.settings = settings; this.hooks = hooks;
@@ -71,6 +71,24 @@ export class Desktop {
         this.buildPhone();
         this.buildMessages();
         this.buildAssistant();
+        this.buildAgents();
+        // Watch for agent approvals even when another page is showing: when a
+        // new one appears, pop the notch open on the Agents page.
+        this._lastWaiting = 0;
+        this.agentsPoll = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+            if (!this.alive) return GLib.SOURCE_REMOVE;
+            if (!this.client.available) return GLib.SOURCE_CONTINUE;
+            this.client.agents('State', [], d => {
+                if (!this.alive || !d) return;
+                const waiting = d.waiting || 0;
+                if (waiting > this._lastWaiting && this.n._pageNames[this.n._page] !== 'agents') {
+                    this.n.setPage(this.n._pageNames.indexOf('agents')); this.n.open();
+                }
+                this._lastWaiting = waiting;
+                if (this.n._open && this.n._pageNames[this.n._page] === 'agents') this.renderAgents(d);
+            });
+            return GLib.SOURCE_CONTINUE;
+        });
         this.remoteTimer=GLib.timeout_add(GLib.PRIORITY_DEFAULT,700,()=>{if(!this.alive)return GLib.SOURCE_REMOVE;if(this.phoneRunning)this.client.workspace('PhoneActions',[],jobs=>{if(this.alive&&Array.isArray(jobs))for(const job of jobs)this.executeRemote(job);});return GLib.SOURCE_CONTINUE;});
         this.menu = new PopupMenu.PopupMenu(this.n, .5, St.Side.TOP);
         Main.uiGroup.add_child(this.menu.actor); this.menu.actor.hide();
@@ -233,6 +251,7 @@ export class Desktop {
         if(page==='phone'){this.client.workspace('PhoneState',[],data=>this.phoneRender(data));}
         if(page==='messages'){this.refreshInbox();}
         if(page==='assistant'){this.refreshAssistant();}
+        if(page==='agents'){this.refreshAgents();}
         const gen=++this.refreshGeneration;
         this.client.workspace('Snapshot',[],state=>{if (!this.alive || gen!==this.refreshGeneration || state.error) return;
             this.state=state; this.render();
@@ -277,6 +296,75 @@ export class Desktop {
                 b.get_child().clutter_text.ellipsize=3; this.results.add_child(b);
             }
         });
+    }
+    // --- Agents page (Claude Code sessions + approve from the notch) ---
+    _agentState(st){ return {running:'rulează',waiting:'așteaptă',done:'gata',error:'eroare'}[st]||st||''; }
+    buildAgents(){
+        const page=this.pages.agents;
+        const head=new St.BoxLayout({style_class:'mira-ai-head',x_expand:true});
+        this.agentsBadge=this.label('● …','mira-status-badge'); this.agentsBadge.x_expand=true; head.add_child(this.agentsBadge);
+        this.agentsInstallBtn=this.button('Instalează hooks',()=>this.installAgentHooks(),'mira-button-primary');
+        head.add_child(this.agentsInstallBtn);
+        head.add_child(this.button('Reîmprospătează',()=>this.refreshAgents(),'mira-phone-section'));
+        page.add_child(head);
+        this.agentsHint=this.label('','mira-work-caption'); this.agentsHint.clutter_text.line_wrap=true; page.add_child(this.agentsHint);
+        this.approvalCard=new St.BoxLayout({vertical:true,style_class:'mira-approval',x_expand:true}); this.approvalCard.hide(); page.add_child(this.approvalCard);
+        const scroll=new St.ScrollView({x_expand:true,y_expand:true,hscrollbar_policy:St.PolicyType.NEVER,vscrollbar_policy:St.PolicyType.AUTOMATIC});
+        this.agentsList=new St.BoxLayout({vertical:true,style_class:'mira-agents-list',x_expand:true}); scroll.set_child(this.agentsList); page.add_child(scroll);
+    }
+    refreshAgents(){
+        if(!this.alive) return;
+        this.client.agents('HooksStatus',[],st=>{ if(this.alive){ this._agentsHooks=st; } });
+        this.client.agents('State',[],d=>this.renderAgents(d));
+    }
+    installAgentHooks(){
+        this.agentsHint.text='Se instalează hooks în ~/.claude/settings.json…';
+        this.client.agents('InstallHooks',[],res=>{
+            if(!this.alive) return;
+            if(res&&res.ok) this.agentsHint.text='Hooks instalate (backup salvat). Pornește o sesiune Claude Code.';
+            else this.agentsHint.text='Instalare eșuată: '+((res&&res.error)||'eroare necunoscută');
+            this.later(200,()=>this.refreshAgents());
+        });
+    }
+    respondAgent(id,decision,always){
+        this.client.agents('Respond',[id,decision,!!always],d=>{ if(this.alive) this.renderAgents(d); });
+        this.later(150,()=>this.refreshAgents());
+    }
+    renderAgents(data){
+        if(!this.alive||this.n._pageNames[this.n._page]!=='agents') return;
+        const hooks=this._agentsHooks||{};
+        const active=(data&&data.active)||0, waiting=(data&&data.waiting)||0;
+        this.agentsBadge.text='● '+active+' active · '+waiting+' în așteptare';
+        this.agentsInstallBtn.visible=!hooks.installed;
+        if(!hooks.installed) this.agentsHint.text='Apasă „Instalează hooks" ca Mira să vadă sesiunile Claude Code (face backup la settings.json; dacă Mira nu rulează, Claude nu e blocat).';
+        else if(!(data&&data.sessions&&data.sessions.length)) this.agentsHint.text='Nicio sesiune. Pornește Claude Code într-un proiect.';
+        else this.agentsHint.text='';
+        // Pending approval card (first one that waits).
+        this.approvalCard.destroy_all_children();
+        let pending=null;
+        for(const s of (data&&data.sessions)||[]){ if(s.pending){ pending=s.pending; break; } }
+        if(pending){
+            this.approvalCard.show();
+            this.approvalCard.add_child(this.label(pending.title||'Permisiune','mira-approval-title'));
+            const det=this.label(pending.detail||'','mira-approval-detail'); det.clutter_text.line_wrap=true; this.approvalCard.add_child(det);
+            const row=new St.BoxLayout({style_class:'mira-work-actions',x_expand:true});
+            row.add_child(this.button('Permite',()=>this.respondAgent(pending.id,'allow',false),'mira-btn-allow'));
+            row.add_child(this.button('Întotdeauna',()=>this.respondAgent(pending.id,'allow',true),'mira-btn-always'));
+            row.add_child(this.button('Refuză',()=>this.respondAgent(pending.id,'deny',false),'mira-btn-deny'));
+            row.add_child(this.button('În terminal',()=>this.respondAgent(pending.id,'ask',false),'mira-phone-section'));
+            this.approvalCard.add_child(row);
+        } else this.approvalCard.hide();
+        // Sessions list.
+        this.agentsList.destroy_all_children();
+        for(const s of (data&&data.sessions)||[]){
+            const card=new St.BoxLayout({vertical:true,style_class:'mira-agent-card'+(s.pending?' waiting':'')});
+            const top=new St.BoxLayout({x_expand:true});
+            const name=this.label(s.project||s.agent||'session','mira-agent-name'); name.x_expand=true; top.add_child(name);
+            top.add_child(this.label(this._agentState(s.state),'mira-agent-state'));
+            card.add_child(top);
+            const last=this.label(s.last_line||'','mira-agent-last'); last.clutter_text.ellipsize=Pango.EllipsizeMode.END; card.add_child(last);
+            this.agentsList.add_child(card);
+        }
     }
     // --- Messages page (one-line-per-chat inbox + thread with quick reply) ---
     relTime(epoch){
@@ -630,7 +718,7 @@ export class Desktop {
     }
     destroy() {
         this.alive=false; this.cancel.cancel();
-        if(this.remoteTimer)GLib.source_remove(this.remoteTimer);this.client.workspace('PhoneStop',[]);this.virtualKeyboard=null; this.grab?.dismiss();
+        if(this.remoteTimer)GLib.source_remove(this.remoteTimer);if(this.agentsPoll)GLib.source_remove(this.agentsPoll);this.client.workspace('PhoneStop',[]);this.virtualKeyboard=null; this.grab?.dismiss();
         this.pointer?.remove(); if (this.loop) GLib.source_remove(this.loop);
         for (const id of this.timers) GLib.source_remove(id);
         for (const [obj,id] of this.handlers) obj.disconnect(id);

@@ -25,7 +25,7 @@ import {reminderState, parseWhen} from './reminders.js';
 import {routineEvents, validTime} from './routines.js';
 import {THEMES, EXPRESSIONS, contextMood, looksNatural, summaryText} from './mascot.js';
 
-const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary', 'notes', 'clipboard', 'search', 'phone', 'messages', 'assistant', 'home'];
+const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary', 'notes', 'clipboard', 'search', 'phone', 'agents', 'messages', 'assistant', 'home'];
 
 // Titles shown at the left of the header per page. Music has none (its header
 // is just date/time). Two-tone titles use Pango markup.
@@ -40,6 +40,7 @@ const PAGE_TITLES = {
     shelf: 'Shelf',
     todo: 'Todo<span foreground="#2EE67A">List</span>',
     notes: 'Sticky notepad', clipboard: 'Clipboard', search: 'Caută în fișiere', phone:'Telefon',
+    agents: 'Agen<span foreground="#5CC8FF">ți</span>',
     messages: 'Mes<span foreground="#2EE67A">aje</span>', assistant: 'Asis<span foreground="#8F7CFF">tent</span>',
 };
 
@@ -336,8 +337,8 @@ class Notch extends St.Bin {
         this._tabsBox = new St.BoxLayout({style_class:'mira-top-tabs',y_align:Clutter.ActorAlign.CENTER});
         this._tabActors = [];
         this._tabLabels = [];
-        const icons = ['audio-x-generic-symbolic', 'view-list-symbolic', 'alarm-symbolic', 'weather-showers-symbolic', 'preferences-system-notifications-symbolic', 'folder-symbolic', 'checkbox-checked-symbolic', 'view-statistics-symbolic', 'document-edit-symbolic', 'edit-paste-symbolic', 'system-search-symbolic', 'phone-symbolic', 'mail-unread-symbolic', 'starred-symbolic', 'go-home-symbolic'];
-        this._tabNames = ['Muzică', 'Versuri', 'Focus', 'Apă', 'Remindere', 'Raft', 'Sarcini', 'Rezumat', 'Notițe', 'Clipboard', 'Căutare', 'Telefon', 'Mesaje', 'Asistent', 'Acasă'];
+        const icons = ['audio-x-generic-symbolic', 'view-list-symbolic', 'alarm-symbolic', 'weather-showers-symbolic', 'preferences-system-notifications-symbolic', 'folder-symbolic', 'checkbox-checked-symbolic', 'view-statistics-symbolic', 'document-edit-symbolic', 'edit-paste-symbolic', 'system-search-symbolic', 'phone-symbolic', 'utilities-terminal-symbolic', 'mail-unread-symbolic', 'starred-symbolic', 'go-home-symbolic'];
+        this._tabNames = ['Muzică', 'Versuri', 'Focus', 'Apă', 'Remindere', 'Raft', 'Sarcini', 'Rezumat', 'Notițe', 'Clipboard', 'Căutare', 'Telefon', 'Agenți', 'Mesaje', 'Asistent', 'Acasă'];
         PAGES.forEach((_name, index) => {
             const content = new St.BoxLayout({style_class: 'mira-tab-content', y_align: Clutter.ActorAlign.CENTER});
             content.add_child(new St.Icon({icon_name: icons[index], icon_size: 14}));
@@ -1656,6 +1657,7 @@ class Notch extends St.Bin {
         case 'shelf':
         case 'messages':
         case 'assistant':
+        case 'agents':
             this._desktop?.refresh();
             break;
         case 'music':
