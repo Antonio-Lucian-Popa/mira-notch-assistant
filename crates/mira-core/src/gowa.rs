@@ -503,6 +503,108 @@ pub fn png_data_uri(bytes: &[u8]) -> String {
     )
 }
 
+/// A decoded image in top-down BGRA8, ready for GDI's `StretchDIBits`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodedImage {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height * 4` bytes, row-major top-down, channels B, G, R, A.
+    pub bgra: Vec<u8>,
+}
+
+/// Decode a PNG (the GOWA login QR) into top-down BGRA8 pixels, so a native
+/// host that cannot decode PNG itself can blit it directly.
+pub fn decode_png_to_bgra(bytes: &[u8]) -> Result<DecodedImage> {
+    let mut decoder = png::Decoder::new(Cursor::new(bytes));
+    // Expand palette/low-bit-depth to 8-bit channels and drop 16-bit down to 8,
+    // so we only have to handle Gray/GrayA/RGB/RGBA at 8 bits below.
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder
+        .read_info()
+        .map_err(|e| Error::other(format!("png header: {e}")))?;
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = reader
+        .next_frame(&mut buf)
+        .map_err(|e| Error::other(format!("png decode: {e}")))?;
+    let src = &buf[..info.buffer_size()];
+    let px = (info.width as usize) * (info.height as usize);
+    let mut bgra = vec![0u8; px * 4];
+    let put = |bgra: &mut [u8], i: usize, r: u8, g: u8, b: u8, a: u8| {
+        bgra[i * 4] = b;
+        bgra[i * 4 + 1] = g;
+        bgra[i * 4 + 2] = r;
+        bgra[i * 4 + 3] = a;
+    };
+    match info.color_type {
+        png::ColorType::Grayscale => {
+            for i in 0..px {
+                let v = src[i];
+                put(&mut bgra, i, v, v, v, 255);
+            }
+        }
+        png::ColorType::GrayscaleAlpha => {
+            for i in 0..px {
+                let v = src[i * 2];
+                put(&mut bgra, i, v, v, v, src[i * 2 + 1]);
+            }
+        }
+        png::ColorType::Rgb => {
+            for i in 0..px {
+                put(
+                    &mut bgra,
+                    i,
+                    src[i * 3],
+                    src[i * 3 + 1],
+                    src[i * 3 + 2],
+                    255,
+                );
+            }
+        }
+        png::ColorType::Rgba => {
+            for i in 0..px {
+                put(
+                    &mut bgra,
+                    i,
+                    src[i * 4],
+                    src[i * 4 + 1],
+                    src[i * 4 + 2],
+                    src[i * 4 + 3],
+                );
+            }
+        }
+        other => {
+            return Err(Error::other(format!(
+                "unsupported png color type {other:?}"
+            )))
+        }
+    }
+    Ok(DecodedImage {
+        width: info.width,
+        height: info.height,
+        bgra,
+    })
+}
+
+/// Resolve basic-auth credentials from config: the generated pair when Mira
+/// manages GOWA, or a `user:pass` from the configured env var for a user-run
+/// gateway. Returns `None` when neither applies.
+pub fn credentials_from_config(cfg: &crate::store::Config) -> Option<Credentials> {
+    if cfg.messaging_auto_manage {
+        GowaManager::new().ok().and_then(|m| m.credentials().ok())
+    } else if !cfg.messaging_gateway_auth_env.is_empty() {
+        std::env::var(&cfg.messaging_gateway_auth_env)
+            .ok()
+            .and_then(|v| {
+                v.split_once(':').map(|(u, p)| Credentials {
+                    user: u.to_string(),
+                    pass: p.to_string(),
+                })
+            })
+    } else {
+        None
+    }
+}
+
 /// Thin async client over a running GOWA instance.
 #[derive(Clone)]
 pub struct GowaClient {
@@ -532,6 +634,20 @@ impl GowaClient {
             self.device_id = Some(id);
         }
         self
+    }
+
+    /// Build a client for the gateway described by `config` (URL, credentials
+    /// and optional device id).
+    pub fn from_config(cfg: &crate::store::Config) -> Result<Self> {
+        let client = GowaClient::new(
+            cfg.messaging_gateway_url.clone(),
+            credentials_from_config(cfg),
+        )?;
+        Ok(if cfg.messaging_device_id.is_empty() {
+            client
+        } else {
+            client.with_device(&cfg.messaging_device_id)
+        })
     }
 
     fn url(&self, path: &str) -> String {
@@ -804,5 +920,26 @@ mod tests {
         assert!(env.results.is_connected);
         assert!(env.results.is_logged_in);
         assert_eq!(env.results.device_id, "d1");
+    }
+
+    #[test]
+    fn png_round_trips_to_bgra() {
+        // Encode a 2x1 RGBA PNG: red then green, then decode back to BGRA.
+        let mut png_bytes = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut png_bytes, 2, 1);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut w = enc.write_header().unwrap();
+            w.write_image_data(&[255, 0, 0, 255, 0, 255, 0, 255])
+                .unwrap();
+        }
+        let img = decode_png_to_bgra(&png_bytes).unwrap();
+        assert_eq!((img.width, img.height), (2, 1));
+        assert_eq!(img.bgra.len(), 8);
+        // Pixel 0 (red) -> BGRA = 0,0,255,255.
+        assert_eq!(&img.bgra[0..4], &[0, 0, 255, 255]);
+        // Pixel 1 (green) -> BGRA = 0,255,0,255.
+        assert_eq!(&img.bgra[4..8], &[0, 255, 0, 255]);
     }
 }

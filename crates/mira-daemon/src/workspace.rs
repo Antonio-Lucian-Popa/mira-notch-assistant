@@ -1,5 +1,5 @@
 use mira_core::ai::{self, AiClient, AiConversation};
-use mira_core::gowa::{self, Credentials, GowaClient, GowaManager};
+use mira_core::gowa::{self, GowaClient, GowaManager};
 use mira_core::store::Config;
 use mira_core::workspace::{self, Workspace};
 use serde_json::json;
@@ -36,35 +36,6 @@ fn gateway_port(cfg: &Config) -> u16 {
         .and_then(|s| s.split('/').next())
         .and_then(|s| s.parse().ok())
         .unwrap_or(3000)
-}
-
-/// Resolve basic-auth credentials: the generated pair when Mira manages GOWA,
-/// or a `user:pass` read from the configured env var for a user-run gateway.
-fn gowa_credentials(cfg: &Config) -> Option<Credentials> {
-    if cfg.messaging_auto_manage {
-        GowaManager::new().ok().and_then(|m| m.credentials().ok())
-    } else if !cfg.messaging_gateway_auth_env.is_empty() {
-        std::env::var(&cfg.messaging_gateway_auth_env)
-            .ok()
-            .and_then(|v| {
-                v.split_once(':').map(|(u, p)| Credentials {
-                    user: u.to_string(),
-                    pass: p.to_string(),
-                })
-            })
-    } else {
-        None
-    }
-}
-
-/// Build a GOWA client for the configured gateway.
-fn build_client(cfg: &Config) -> mira_core::Result<GowaClient> {
-    let client = GowaClient::new(cfg.messaging_gateway_url.clone(), gowa_credentials(cfg))?;
-    Ok(if cfg.messaging_device_id.is_empty() {
-        client
-    } else {
-        client.with_device(&cfg.messaging_device_id)
-    })
 }
 
 /// JSON snapshot of the assistant conversation plus provider readiness.
@@ -287,7 +258,7 @@ impl WorkspaceIface {
             "provider": cfg.messaging_provider.label(),
             "gateway": cfg.messaging_gateway_url,
         });
-        match build_client(&cfg) {
+        match GowaClient::from_config(&cfg) {
             Ok(client) => match client.provider_status().await {
                 Ok(status) => {
                     if let mira_core::messaging::ProviderStatus::WaitingForScan { qr } = &status {
@@ -315,7 +286,7 @@ impl WorkspaceIface {
         if !cfg.messaging_enabled {
             return json!({"enabled": false, "chats": []}).to_string();
         }
-        let client = match build_client(&cfg) {
+        let client = match GowaClient::from_config(&cfg) {
             Ok(c) => c,
             Err(e) => {
                 return json!({"enabled": true, "chats": [], "error": e.to_string()}).to_string()
@@ -340,7 +311,7 @@ impl WorkspaceIface {
         if !cfg.messaging_enabled {
             return json!({"enabled": false, "messages": []}).to_string();
         }
-        let client = match build_client(&cfg) {
+        let client = match GowaClient::from_config(&cfg) {
             Ok(c) => c,
             Err(e) => return json!({"messages": [], "error": e.to_string()}).to_string(),
         };
@@ -359,7 +330,7 @@ impl WorkspaceIface {
         if text.trim().is_empty() {
             return json!({"ok": false, "error": "empty message"}).to_string();
         }
-        let client = match build_client(&cfg) {
+        let client = match GowaClient::from_config(&cfg) {
             Ok(c) => c,
             Err(e) => return json!({"ok": false, "error": e.to_string()}).to_string(),
         };
