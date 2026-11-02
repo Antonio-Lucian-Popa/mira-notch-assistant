@@ -6,6 +6,8 @@ mod desktop;
 mod host;
 #[cfg(windows)]
 mod media;
+#[cfg(windows)]
+mod wa;
 
 #[cfg(windows)]
 fn main() {

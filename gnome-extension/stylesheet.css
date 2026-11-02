@@ -878,8 +878,40 @@
 .mira-tile-control:hover {opacity:225;}
 .mira-tile-control:focus {box-shadow:0 0 7px 0 rgba(181,233,239,.7);}
 
-/* All sections fit in one bottom row; only the active section gets a label. */
-.mira-top-tabs {padding:4px;spacing:1px;}
-.mira-top-tab {min-width:14px;min-height:28px;padding:0 4px;}
-.mira-tab-content {spacing:4px;font-size:10px;}
-.mira-nav-label {max-width:58px;}
+/* All sections fit in one bottom row; only the active section gets a label.
+ * Roomier than before: with the wider notch each icon gets space to breathe. */
+.mira-top-tabs {padding:5px 9px;spacing:4px;}
+.mira-top-tab {min-width:20px;min-height:32px;padding:0 8px;border-radius:12px;}
+.mira-tab-content {spacing:6px;font-size:11px;}
+.mira-nav-label {max-width:64px;}
+
+/* --- Messages (one-line-per-chat inbox, thread + quick reply) --- */
+.mira-msg-head,.mira-ai-head {spacing:8px;padding:2px 2px 4px 2px;}
+.mira-msg-list {spacing:4px;padding:2px;}
+.mira-chat-row {border-radius:12px;padding:0;background-color:transparent;}
+.mira-chat-row:hover {background-color:#1c2730;}
+.mira-chat-row.unread {background-color:#11241b;}
+.mira-chat-row.unread:hover {background-color:#163024;}
+.mira-chat-row-box {spacing:10px;padding:8px 10px;}
+.mira-chat-avatar {min-width:30px;min-height:30px;border-radius:15px;background-color:#2b3e37;color:#b4f1d7;font-size:12px;font-weight:700;text-align:center;}
+.mira-chat-mid {spacing:2px;}
+.mira-chat-name {font-size:13px;font-weight:600;color:#e7f2f4;}
+.mira-chat-time {font-size:10px;color:#8aa0a6;}
+.mira-chat-preview {font-size:11px;color:#9eb6c8;max-width:220px;}
+.mira-chat-unread {min-width:18px;min-height:18px;border-radius:10px;background-color:#2ee67a;color:#06130b;font-size:10px;font-weight:700;text-align:center;}
+
+/* --- Thread + AI conversation bubbles --- */
+.mira-thread,.mira-ai-msgs {spacing:6px;}
+.mira-thread-head {spacing:8px;padding-bottom:4px;}
+.mira-thread-back {min-width:26px;padding:4px 8px;font-size:15px;}
+.mira-thread-title {font-size:13px;font-weight:600;color:#e7f2f4;}
+.mira-thread-msgs,.mira-ai-msgs {spacing:6px;padding:4px 2px;}
+.mira-bubble {border-radius:14px;padding:8px 11px;font-size:12px;max-width:300px;}
+.mira-bubble.in {background-color:#222c34;color:#e7f2f4;}
+.mira-bubble.out {background-color:#1f6f45;color:#eafff2;}
+.mira-reply-row {spacing:6px;padding-top:4px;}
+.mira-reply-entry {background-color:#111a25;color:#e7f2f4;border:1px solid #304355;border-radius:16px;padding:10px 14px;font-size:12px;}
+.mira-reply-entry:focus {border-color:#85efb7;}
+.mira-reply-send {min-width:36px;border-radius:16px;padding:8px 12px;font-weight:700;background-color:#2ee67a;color:#06130b;}
+.mira-reply-send:hover {background-color:#4ff295;}
+.mira-qr {background-color:#ffffff;border-radius:10px;padding:8px;}

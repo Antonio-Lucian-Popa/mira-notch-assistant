@@ -44,6 +44,9 @@ struct Host {
     playing: Arc<AtomicBool>,
     preview: Option<(String, Instant)>,
     summary_banner: Option<(store::DailySummary, Instant)>,
+    wa: crate::wa::Worker,
+    /// JID of the WhatsApp conversation currently open on the messages page.
+    open_thread_jid: Option<String>,
 }
 thread_local! { static HOST: RefCell<Option<Host>> = const { RefCell::new(None) }; }
 pub(crate) fn wide(s: &str) -> Vec<u16> {
@@ -81,6 +84,8 @@ impl Host {
             playing: crate::media::watch(),
             preview: None,
             summary_banner: None,
+            wa: crate::wa::Worker::new(),
+            open_thread_jid: None,
         })
     }
     unsafe fn desktop_tick(&mut self, hwnd: HWND, now: Instant) {
@@ -287,8 +292,9 @@ impl Host {
             h,
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         );
+        let reply_visible = self.page == 10 && self.wa.snapshot().thread_open;
         self.desktop
-            .controls(hwnd, self.open, self.page, self.scale);
+            .controls(hwnd, self.open, self.page, self.scale, reply_visible);
         let radius = (if self.open {
             self.tokens.notch.hover.radius_bottom
         } else {
@@ -303,6 +309,10 @@ impl Host {
     unsafe fn tick(&mut self, hwnd: HWND) {
         let now = Instant::now();
         let mut dirty = self.desktop.poll();
+        // Keep the messages page live as the background worker updates.
+        if self.open && self.page == 10 {
+            dirty = true;
+        }
         if let Some(receiver) = &self.desktop.receiver {
             for job in receiver.drain() {
                 if job.action.lock {
@@ -522,6 +532,35 @@ impl Host {
             InvalidateRect(hwnd, null(), 0);
             return;
         }
+        if self.page == 10 {
+            let (lx, ly) = (x as f32 / self.scale, y as f32 / self.scale);
+            let snap = self.wa.snapshot();
+            if snap.thread_open {
+                if ly < 88. && lx < 80. {
+                    // Back to the chat list.
+                    self.open_thread_jid = None;
+                    self.wa.close_thread();
+                } else if lx > self.desktop.width - 92. && ly > self.desktop.height - 46. {
+                    // Send the reply box contents.
+                    let text = window_text(self.desktop.reply);
+                    if !text.trim().is_empty() {
+                        if let Some(jid) = self.open_thread_jid.clone() {
+                            self.wa.send(jid, text);
+                            SetWindowTextW(self.desktop.reply, wide("").as_ptr());
+                        }
+                    }
+                }
+            } else if ly >= 108. {
+                let row = ((ly - 108.) / 44.) as usize;
+                if let Some(c) = snap.chats.get(row) {
+                    self.open_thread_jid = Some(c.jid.clone());
+                    self.wa.open(c.jid.clone(), c.title.clone());
+                }
+            }
+            self.layout(hwnd);
+            InvalidateRect(hwnd, null(), 0);
+            return;
+        }
         if self.page >= 5 {
             let (x, y) = (x as f32 / self.scale, y as f32 / self.scale);
             if (80. ..112.).contains(&y) && x < 486. {
@@ -625,6 +664,9 @@ impl Host {
         DeleteObject(bg);
         SetBkMode(buffer, TRANSPARENT as i32);
         if self.open && self.page >= 5 && self.preview.is_none() {
+            let integration = self.integration_info();
+            self.wa.set_active(self.page == 10);
+            let wa_snap = (self.page == 10).then(|| self.wa.snapshot());
             self.desktop.paint(
                 buffer,
                 self.scale,
@@ -635,6 +677,8 @@ impl Host {
                 } else {
                     0.
                 },
+                &integration,
+                wa_snap.as_ref(),
             );
         } else if !self.open || self.preview.is_some() {
             let next = self.reminders.first();
@@ -1083,6 +1127,18 @@ impl Host {
     unsafe fn text(&self, dc: HDC, value: &str, top: i32, bottom: i32, size: i32, color: u32) {
         self.text_with_left(dc, value, (top, bottom), (size, color), 14);
     }
+    /// Snapshot messaging + AI settings for the status pages (10 and 11).
+    fn integration_info(&self) -> crate::desktop::IntegrationInfo {
+        let ai = self.config.ai_config();
+        crate::desktop::IntegrationInfo {
+            ai_enabled: self.config.ai_enabled,
+            ai_provider: ai.kind.label().to_string(),
+            ai_model: ai.model.clone(),
+            ai_endpoint: ai.base_url(),
+            ai_needs_key: ai.kind.requires_key(),
+            ai_key_env: ai.api_key_env.clone(),
+        }
+    }
     unsafe fn text_with_left(
         &self,
         dc: HDC,
@@ -1413,6 +1469,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 (313, "Muzică / pagini clasice"),
                 (314, "Alege un folder…"),
                 (316, "Telefon · asociere și shortcuturi"),
+                (317, "Mesaje · WhatsApp (experimental)"),
+                (318, "Asistent AI · Ollama / cheie proprie"),
+                (319, "WhatsApp · Instalează gateway"),
+                (320, "WhatsApp · Pornește gateway"),
+                (321, "WhatsApp · Oprește gateway"),
             ] {
                 AppendMenuW(menu, MF_STRING, id, wide(label).as_ptr());
             }
@@ -1567,6 +1628,26 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                                 s.page = 9;
                                 s.open = true;
                                 s.layout(hwnd);
+                            }
+                            317 | 318 => {
+                                // Messaging (10) / AI assistant (11) status pages.
+                                s.page = (choice - 307) as usize;
+                                s.open = true;
+                                s.layout(hwnd);
+                                SetForegroundWindow(hwnd);
+                            }
+                            319 | 320 | 321 => {
+                                match choice {
+                                    319 => s.wa.install(),
+                                    320 => s.wa.start(),
+                                    _ => s.wa.stop(),
+                                }
+                                if choice != 321 {
+                                    s.page = 10;
+                                    s.open = true;
+                                    s.layout(hwnd);
+                                    SetForegroundWindow(hwnd);
+                                }
                             }
                             314 => {
                                 PostMessageW(hwnd, WM_APP + 3, 0, 0);

@@ -30,8 +30,9 @@
 
     <key name="panel-layout-version" type="i"><default>0</default><summary>Panel home migration version</summary></key>
     <key name="desktop-motion" type="s"><choices><choice value="docked"/><choice value="follow"/><choice value="pinned"/><choice value="roam"/></choices><default>'docked'</default><summary>Desktop companion movement</summary></key>
-    <key name="workspace-width" type="i"><range min="440" max="960"/><default>520</default><summary>Workspace width</summary></key>
-    <key name="workspace-height" type="i"><range min="260" max="760"/><default>340</default><summary>Workspace height</summary></key>
+    <key name="desktop-corner" type="s"><choices><choice value=""/><choice value="tl"/><choice value="tr"/><choice value="bl"/><choice value="br"/></choices><default>''</default><summary>Desktop corner the companion blob snaps to</summary></key>
+    <key name="workspace-width" type="i"><range min="440" max="960"/><default>640</default><summary>Workspace width</summary></key>
+    <key name="workspace-height" type="i"><range min="260" max="760"/><default>384</default><summary>Workspace height</summary></key>
     <key name="minimal" type="b">
       <default>false</default>
       <summary>Minimal closed notch</summary>

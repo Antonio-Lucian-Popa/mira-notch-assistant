@@ -61,6 +61,41 @@ pub struct Config {
     pub motion_intensity: f32,
     pub daily_summary_enabled: bool,
     pub daily_summary_time: String,
+
+    // --- messaging (opt-in; talks to a local gateway the user runs) ---
+    /// Master switch for the messaging page. Off by default: the bridge is
+    /// unofficial and contacts a chat network, so the user opts in explicitly.
+    pub messaging_enabled: bool,
+    /// Which network the gateway bridges (label only).
+    pub messaging_provider: crate::messaging::MessagingProvider,
+    /// Base URL of the local gateway's HTTP API.
+    pub messaging_gateway_url: String,
+    /// Let Mira download, verify and run the GOWA gateway itself. When false,
+    /// the user runs their own gateway and Mira only talks to it.
+    pub messaging_auto_manage: bool,
+    /// Pin a GOWA release (tag without the leading `v`, e.g. "7.6.0"); blank = latest.
+    pub messaging_gowa_version: String,
+    /// Optional X-Device-Id for multi-device GOWA setups; blank uses the default.
+    pub messaging_device_id: String,
+    /// For a user-run gateway: name of an env var holding `user:pass` basic
+    /// auth (never the credential itself). Unused when auto-managed.
+    pub messaging_gateway_auth_env: String,
+
+    // --- AI assistant (opt-in) ---
+    /// Master switch for the assistant page.
+    pub ai_enabled: bool,
+    /// Backend: local Ollama, an OpenAI-compatible API, or Anthropic.
+    pub ai_provider: crate::ai::AiProviderKind,
+    /// Model id for the chosen backend (e.g. "llama3.2", "gpt-4o-mini").
+    pub ai_model: String,
+    /// Base URL override; blank uses the provider's default endpoint.
+    pub ai_endpoint: String,
+    /// Name of the environment variable holding the API key — never the key.
+    pub ai_api_key_env: String,
+    /// System prompt / persona for the assistant.
+    pub ai_system_prompt: String,
+    /// Response length cap (required by Anthropic; advisory elsewhere).
+    pub ai_max_tokens: u32,
 }
 
 impl Default for Config {
@@ -82,6 +117,22 @@ impl Default for Config {
             motion_intensity: 0.6,
             daily_summary_enabled: true,
             daily_summary_time: "21:00".into(),
+
+            messaging_enabled: false,
+            messaging_provider: crate::messaging::MessagingProvider::default(),
+            messaging_gateway_url: "http://127.0.0.1:3000".into(),
+            messaging_auto_manage: true,
+            messaging_gowa_version: String::new(),
+            messaging_device_id: String::new(),
+            messaging_gateway_auth_env: String::new(),
+
+            ai_enabled: false,
+            ai_provider: crate::ai::AiProviderKind::default(),
+            ai_model: crate::ai::AiProviderKind::default().default_model().into(),
+            ai_endpoint: String::new(),
+            ai_api_key_env: "MIRA_AI_API_KEY".into(),
+            ai_system_prompt: crate::ai::AiConfig::default().system_prompt,
+            ai_max_tokens: 1024,
         }
     }
 }
@@ -94,6 +145,24 @@ impl Config {
             short_break_secs: self.pomodoro_short_break_min as i64 * 60,
             long_break_secs: self.pomodoro_long_break_min as i64 * 60,
             cycles_before_long: self.pomodoro_cycles_before_long.max(1),
+        }
+    }
+
+    /// Assemble the AI runtime config from these settings. The API key itself is
+    /// resolved from the environment at call time, not stored here.
+    pub fn ai_config(&self) -> crate::ai::AiConfig {
+        let model = if self.ai_model.trim().is_empty() {
+            self.ai_provider.default_model().to_string()
+        } else {
+            self.ai_model.clone()
+        };
+        crate::ai::AiConfig {
+            kind: self.ai_provider,
+            model,
+            endpoint: self.ai_endpoint.clone(),
+            api_key_env: self.ai_api_key_env.clone(),
+            system_prompt: self.ai_system_prompt.clone(),
+            max_tokens: self.ai_max_tokens.max(1),
         }
     }
 }
@@ -596,6 +665,44 @@ mod tests {
         let cfg = Config::from_toml("language = \"en\"\n").unwrap();
         assert_eq!(cfg.language, Language::En);
         assert_eq!(cfg.size_scale, 1.0); // default preserved
+    }
+
+    #[test]
+    fn messaging_and_ai_default_to_opt_out() {
+        let cfg = Config::default();
+        assert!(!cfg.messaging_enabled);
+        assert!(!cfg.ai_enabled);
+        assert_eq!(cfg.ai_provider, crate::ai::AiProviderKind::Ollama);
+        // The key env var name is stored, never a key itself.
+        assert_eq!(cfg.ai_api_key_env, "MIRA_AI_API_KEY");
+    }
+
+    #[test]
+    fn config_with_ai_and_messaging_roundtrips() {
+        let cfg = Config {
+            messaging_enabled: true,
+            messaging_provider: crate::messaging::MessagingProvider::WhatsApp,
+            ai_enabled: true,
+            ai_provider: crate::ai::AiProviderKind::Anthropic,
+            ai_model: "claude-3-5-haiku-latest".into(),
+            ai_endpoint: "https://api.anthropic.com".into(),
+            ..Config::default()
+        };
+        let back = Config::from_toml(&cfg.to_toml().unwrap()).unwrap();
+        assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn ai_config_fills_model_from_provider_when_blank() {
+        let cfg = Config {
+            ai_provider: crate::ai::AiProviderKind::OpenAiCompatible,
+            ai_model: "   ".into(),
+            ..Config::default()
+        };
+        let ai = cfg.ai_config();
+        assert_eq!(ai.kind, crate::ai::AiProviderKind::OpenAiCompatible);
+        assert_eq!(ai.model, "gpt-4o-mini");
+        assert!(ai.max_tokens >= 1);
     }
 
     #[test]

@@ -24,6 +24,9 @@ pub enum Error {
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
 
+    #[error("ai provider error: {0}")]
+    Ai(String),
+
     #[error("lyrics not found for the requested track")]
     LyricsNotFound,
 

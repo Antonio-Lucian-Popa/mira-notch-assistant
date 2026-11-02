@@ -16,6 +16,18 @@ use windows_sys::Win32::{
     UI::{Controls::EM_SETLIMITTEXT, Shell::*, WindowsAndMessaging::*},
 };
 
+/// Read-only snapshot of messaging + AI settings for the Windows status pages.
+/// Built by the host from `Config`; keeps `Desktop::paint` free of config access.
+#[derive(Default, Clone)]
+pub struct IntegrationInfo {
+    pub ai_enabled: bool,
+    pub ai_provider: String,
+    pub ai_model: String,
+    pub ai_endpoint: String,
+    pub ai_needs_key: bool,
+    pub ai_key_env: String,
+}
+
 pub struct Desktop {
     pub receiver: Option<mira_core::bridge::Receiver>,
     pub phone_name: HWND,
@@ -38,6 +50,8 @@ pub struct Desktop {
     pub query: HWND,
     pub note: HWND,
     pub list: HWND,
+    /// Inline reply box for the messages page.
+    pub reply: HWND,
     pub status: String,
     pub trail: std::collections::VecDeque<(Instant, i32, i32)>,
     pub next_roam: Instant,
@@ -81,6 +95,7 @@ impl Desktop {
             query: null_mut(),
             note: null_mut(),
             list: null_mut(),
+            reply: null_mut(),
             status: String::new(),
             trail: std::collections::VecDeque::new(),
             next_roam: Instant::now(),
@@ -90,7 +105,14 @@ impl Desktop {
             cpu_previous: None,
         }
     }
-    pub unsafe fn controls(&mut self, hwnd: HWND, open: bool, page: usize, scale: f32) {
+    pub unsafe fn controls(
+        &mut self,
+        hwnd: HWND,
+        open: bool,
+        page: usize,
+        scale: f32,
+        reply_visible: bool,
+    ) {
         if self.note.is_null() {
             self.phone_name = CreateWindowExW(
                 WS_EX_CLIENTEDGE,
@@ -168,6 +190,21 @@ impl Desktop {
                 null(),
             );
             SendMessageW(self.query, EM_SETLIMITTEXT, 1024, 0);
+            self.reply = CreateWindowExW(
+                WS_EX_CLIENTEDGE,
+                wide("EDIT").as_ptr(),
+                null(),
+                WS_CHILD | ES_AUTOHSCROLL as u32,
+                0,
+                0,
+                0,
+                0,
+                hwnd,
+                407usize as HMENU,
+                null_mut(),
+                null(),
+            );
+            SendMessageW(self.reply, EM_SETLIMITTEXT, 4096, 0);
             self.list = CreateWindowExW(
                 0,
                 wide("LISTBOX").as_ptr(),
@@ -183,7 +220,7 @@ impl Desktop {
                 null(),
             );
             let font = GetStockObject(DEFAULT_GUI_FONT);
-            for control in [self.note, self.query, self.list] {
+            for control in [self.note, self.query, self.list, self.reply] {
                 SendMessageW(control, WM_SETFONT, font as usize, 1);
             }
         }
@@ -261,6 +298,153 @@ impl Desktop {
         );
         if open && page == 7 {
             self.populate_clips();
+        }
+        // Reply box sits at the bottom of the messages page while a thread is open.
+        MoveWindow(
+            self.reply,
+            (22. * scale) as i32,
+            ((h - 44.) * scale) as i32,
+            ((w - 96.) * scale) as i32,
+            (32. * scale) as i32,
+            1,
+        );
+        ShowWindow(
+            self.reply,
+            if open && page == 10 && reply_visible {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+    }
+    /// Live messages page: status, login QR, chat list, or an open thread.
+    unsafe fn paint_messages(&self, dc: HDC, wa: Option<&crate::wa::Snapshot>) {
+        let w = self.width as i32;
+        let h = self.height as i32;
+        let title_c = color(143, 176, 255);
+        let s = match wa {
+            Some(s) => s,
+            None => {
+                label(dc, "Mesaje", 22, 62, w - 20, 88, 14, title_c);
+                return;
+            }
+        };
+        if !s.enabled {
+            label(dc, "Mesaje - dezactivat", 22, 62, w - 20, 86, 14, title_c);
+            label(
+                dc,
+                "Activeaza in config.toml: messaging_enabled = true",
+                22,
+                90,
+                w - 20,
+                112,
+                11,
+                color(184, 209, 255),
+            );
+            return;
+        }
+        if s.thread_open {
+            label(
+                dc,
+                &format!("< {}", s.thread_title),
+                22,
+                58,
+                w - 20,
+                82,
+                13,
+                color(242, 242, 243),
+            );
+            let start = s.thread_msgs.len().saturating_sub(6);
+            let mut y = 90;
+            for m in &s.thread_msgs[start..] {
+                let (lx, rx, c) = if m.from_me {
+                    (140, w - 24, color(176, 255, 214))
+                } else {
+                    (24, w - 140, color(228, 228, 235))
+                };
+                label(dc, &m.text, lx, y, rx, y + 20, 11, c);
+                y += 24;
+            }
+            // Send affordance next to the reply box (a Win32 EDIT child).
+            label(
+                dc,
+                "Trimite >",
+                w - 86,
+                h - 42,
+                w - 16,
+                h - 14,
+                12,
+                color(133, 239, 183),
+            );
+            return;
+        }
+        let badge = match s.state.as_str() {
+            "connected" => "Conectat",
+            "connecting" => "Conectare...",
+            "waiting_for_scan" => "Scaneaza QR",
+            _ => "Deconectat",
+        };
+        label(
+            dc,
+            &format!("Mesaje  -  {badge}"),
+            22,
+            56,
+            w - 20,
+            78,
+            13,
+            title_c,
+        );
+        let hint = if !s.busy.is_empty() {
+            s.busy.as_str()
+        } else {
+            s.status_text.as_str()
+        };
+        label(dc, hint, 22, 80, w - 20, 100, 11, color(184, 209, 255));
+        if s.state == "waiting_for_scan" {
+            if let Some(qr) = &s.qr {
+                let size = 180;
+                blit_bgra(dc, (w - size) / 2, 106, size, size, qr);
+            }
+            return;
+        }
+        let mut y = 108;
+        if s.chats.is_empty() {
+            label(
+                dc,
+                "Nicio conversatie inca.",
+                24,
+                y,
+                w - 24,
+                y + 20,
+                11,
+                color(154, 170, 190),
+            );
+        }
+        for c in s.chats.iter().take(5) {
+            label(dc, &c.title, 24, y, w / 2, y + 18, 12, color(242, 242, 243));
+            if c.unread > 0 {
+                label(
+                    dc,
+                    &format!("{}", c.unread),
+                    w - 44,
+                    y,
+                    w - 22,
+                    y + 18,
+                    11,
+                    color(133, 239, 183),
+                );
+            }
+            label(
+                dc,
+                &c.preview,
+                24,
+                y + 18,
+                w - 24,
+                y + 36,
+                10,
+                color(154, 170, 190),
+            );
+            y += 44;
         }
     }
     pub unsafe fn populate_clips(&self) {
@@ -392,7 +576,16 @@ impl Desktop {
         SendMessageW(self.list, LB_RESETCONTENT, 0, 0);
         self.status = "Memoria temporară a fost golită. Originalele sunt intacte.".into();
     }
-    pub unsafe fn paint(&self, dc: HDC, scale: f32, gaze: (f32, f32), page: usize, t: f32) {
+    pub unsafe fn paint(
+        &self,
+        dc: HDC,
+        scale: f32,
+        gaze: (f32, f32),
+        page: usize,
+        t: f32,
+        info: &IntegrationInfo,
+        wa: Option<&crate::wa::Snapshot>,
+    ) {
         let w = self.width;
         let h = self.height;
         // All rendering is in logical pixels, with GDI mapped once for DPI.
@@ -516,6 +709,68 @@ impl Desktop {
                     color(200, 222, 232),
                 );
             }
+        }
+        if page == 10 {
+            self.paint_messages(dc, wa);
+        } else if page == 11 {
+            // AI assistant status (chat lives on the GNOME build).
+            label(
+                dc,
+                "Asistent AI",
+                22,
+                70,
+                w as i32 - 20,
+                96,
+                14,
+                color(143, 176, 255),
+            );
+            label(
+                dc,
+                &format!("{} · {}", info.ai_provider, info.ai_model),
+                22,
+                100,
+                w as i32 - 20,
+                124,
+                12,
+                color(184, 209, 255),
+            );
+            label(
+                dc,
+                &format!("Endpoint: {}", info.ai_endpoint),
+                22,
+                126,
+                w as i32 - 20,
+                148,
+                11,
+                color(184, 209, 255),
+            );
+            let status = if !info.ai_enabled {
+                "Status: dezactivat · pune ai_enabled = true în config.toml".to_string()
+            } else if info.ai_needs_key {
+                format!("Necesită cheia în variabila ${}", info.ai_key_env)
+            } else {
+                "Pregătit (Ollama local, fără cheie)".to_string()
+            };
+            label(
+                dc,
+                &status,
+                22,
+                152,
+                w as i32 - 20,
+                176,
+                12,
+                color(133, 239, 183),
+            );
+            label(
+                dc,
+                "Chat din notch: pe build-ul Linux/GNOME. Pe Windows urmează.",
+                22,
+                180,
+                w as i32 - 20,
+                214,
+                11,
+                color(145, 170, 190),
+            );
         }
         if page == 5 {
             if self.state.links.is_empty() {
@@ -814,4 +1069,40 @@ unsafe fn label(
 }
 fn color(r: u8, g: u8, b: u8) -> u32 {
     r as u32 | ((g as u32) << 8) | ((b as u32) << 16)
+}
+
+/// Blit a top-down BGRA image (the decoded login QR) into a logical rect.
+unsafe fn blit_bgra(
+    dc: HDC,
+    x: i32,
+    y: i32,
+    dw: i32,
+    dh: i32,
+    img: &mira_core::gowa::DecodedImage,
+) {
+    if img.width == 0 || img.height == 0 {
+        return;
+    }
+    let mut bi: BITMAPINFO = std::mem::zeroed();
+    bi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+    bi.bmiHeader.biWidth = img.width as i32;
+    bi.bmiHeader.biHeight = -(img.height as i32); // negative => top-down
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB as u32;
+    StretchDIBits(
+        dc,
+        x,
+        y,
+        dw,
+        dh,
+        0,
+        0,
+        img.width as i32,
+        img.height as i32,
+        img.bgra.as_ptr().cast(),
+        &bi,
+        DIB_RGB_COLORS,
+        SRCCOPY,
+    );
 }

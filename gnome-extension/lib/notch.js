@@ -25,7 +25,7 @@ import {reminderState, parseWhen} from './reminders.js';
 import {routineEvents, validTime} from './routines.js';
 import {THEMES, EXPRESSIONS, contextMood, looksNatural, summaryText} from './mascot.js';
 
-const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary', 'notes', 'clipboard', 'search', 'phone', 'home'];
+const PAGES = ['music', 'lyrics', 'focus', 'water', 'reminders', 'shelf', 'todo', 'summary', 'notes', 'clipboard', 'search', 'phone', 'messages', 'assistant', 'home'];
 
 // Titles shown at the left of the header per page. Music has none (its header
 // is just date/time). Two-tone titles use Pango markup.
@@ -40,6 +40,7 @@ const PAGE_TITLES = {
     shelf: 'Shelf',
     todo: 'Todo<span foreground="#2EE67A">List</span>',
     notes: 'Sticky notepad', clipboard: 'Clipboard', search: 'Caută în fișiere', phone:'Telefon',
+    messages: 'Mes<span foreground="#2EE67A">aje</span>', assistant: 'Asis<span foreground="#8F7CFF">tent</span>',
 };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -335,8 +336,8 @@ class Notch extends St.Bin {
         this._tabsBox = new St.BoxLayout({style_class:'mira-top-tabs',y_align:Clutter.ActorAlign.CENTER});
         this._tabActors = [];
         this._tabLabels = [];
-        const icons = ['audio-x-generic-symbolic', 'view-list-symbolic', 'alarm-symbolic', 'weather-showers-symbolic', 'preferences-system-notifications-symbolic', 'folder-symbolic', 'checkbox-checked-symbolic', 'view-statistics-symbolic', 'document-edit-symbolic', 'edit-paste-symbolic', 'system-search-symbolic', 'phone-symbolic', 'go-home-symbolic'];
-        this._tabNames = ['Muzică', 'Versuri', 'Focus', 'Apă', 'Remindere', 'Raft', 'Sarcini', 'Rezumat', 'Notițe', 'Clipboard', 'Căutare', 'Telefon', 'Acasă'];
+        const icons = ['audio-x-generic-symbolic', 'view-list-symbolic', 'alarm-symbolic', 'weather-showers-symbolic', 'preferences-system-notifications-symbolic', 'folder-symbolic', 'checkbox-checked-symbolic', 'view-statistics-symbolic', 'document-edit-symbolic', 'edit-paste-symbolic', 'system-search-symbolic', 'phone-symbolic', 'mail-unread-symbolic', 'starred-symbolic', 'go-home-symbolic'];
+        this._tabNames = ['Muzică', 'Versuri', 'Focus', 'Apă', 'Remindere', 'Raft', 'Sarcini', 'Rezumat', 'Notițe', 'Clipboard', 'Căutare', 'Telefon', 'Mesaje', 'Asistent', 'Acasă'];
         PAGES.forEach((_name, index) => {
             const content = new St.BoxLayout({style_class: 'mira-tab-content', y_align: Clutter.ActorAlign.CENTER});
             content.add_child(new St.Icon({icon_name: icons[index], icon_size: 14}));
@@ -1418,6 +1419,9 @@ class Notch extends St.Bin {
         if (this._settings.get_string('mode') === 'integrated' &&
             this._settings.get_string('desktop-motion') === 'docked')
             this._closed.h = Math.max(24, Main.panel.height || 32);
+        // Floating → a compact, rounder blob that shows the mascot face.
+        if (this._isBlob() && !minimal)
+            this._closed = {w: Math.round(64 * scale), h: Math.round(56 * scale), r: 24};
         this._hoverSize = {w: this._settings.get_int('workspace-width'), h: this._settings.get_int('workspace-height'), r: 26};
         this._alertSize = {w: t.alert.width * scale, h: t.alert.height, r: t.alert.radiusBottom};
         const g = t.greeting ?? t.alert;
@@ -1432,6 +1436,53 @@ class Notch extends St.Bin {
             : 1.0;
         const manual = this._settings.get_double('size-scale');
         return auto * manual;
+    }
+
+    // --- desktop "blob": the resting look when Mira floats off the panel. ---
+    // The docked notch is never a blob, so its graphics are untouched.
+    _isBlob() {
+        return !!(this._desktop && this._desktop.mode && this._desktop.mode !== 'docked');
+    }
+
+    // Position that keeps a `size` box on the monitor. When a corner is chosen
+    // it hugs that corner (so the open panel grows inward); otherwise it clamps
+    // the current free position on-screen.
+    _blobAnchor(size) {
+        const mon = Main.layoutManager.monitors.find(
+            mm => this.x >= mm.x && this.x < mm.x + mm.width
+        ) ?? Main.layoutManager.primaryMonitor;
+        if (!mon) return {x: this.x, y: this.y};
+        const margin = size.w > 200 ? 12 : 16;
+        const top = mon.y + margin + 28; // leave room for the top panel
+        const corner = this._settings.get_string('desktop-corner');
+        if (corner) {
+            return {
+                x: corner.includes('r') ? mon.x + mon.width - size.w - margin : mon.x + margin,
+                y: corner.includes('b') ? mon.y + mon.height - size.h - margin : top,
+            };
+        }
+        return {
+            x: Math.max(mon.x + margin, Math.min(mon.x + mon.width - size.w - margin, this.x)),
+            y: Math.max(top, Math.min(mon.y + mon.height - size.h - margin, this.y)),
+        };
+    }
+
+    // Snap Mira to a desktop corner as a floating blob (reuses pinned mode).
+    snapToCorner(corner) {
+        this._settings.set_string('desktop-corner', corner);
+        this._desktop?.setMode('pinned');
+        this._open = false;
+        this._openBox.hide();
+        this._alertBox.hide();
+        this._greetBox?.hide();
+        this._closedBox.show();
+        this._computeSizes();
+        this._updateClosedVisual();
+        const pos = this._blobAnchor(this._closed);
+        this.remove_all_transitions();
+        this.set_position(pos.x, pos.y);
+        this._animateTo(this._closed, 180, Clutter.AnimationMode.EASE_OUT_QUAD);
+        this._armIdle?.();
     }
 
     _reposition(width) {
@@ -1506,18 +1557,26 @@ class Notch extends St.Bin {
     _animateTo(size, duration, mode, onComplete) {
         this.remove_all_transitions();
         const monitor = Main.layoutManager.primaryMonitor;
-        const x = this._desktop?.mode !== 'docked' ? this.x : monitor ? Math.round(monitor.x + (monitor.width - size.w) / 2) : this.x;
+        const floating = this._desktop?.mode !== 'docked';
+        // Floating: keep the box (blob when closed, panel when open) fully on
+        // the monitor, hugging the chosen corner. Docked: centered as before.
+        const anchor = floating ? this._blobAnchor(size) : null;
+        const x = floating
+            ? anchor.x
+            : monitor ? Math.round(monitor.x + (monitor.width - size.w) / 2) : this.x;
         this._curRadius = this._desktop?.mode === 'docked' ? 18 : size.r;
         this.set_style(this._rootStyle(this._curRadius));
         this._shapeArea?.queue_repaint();
-        this.ease({
+        const props = {
             x,
             width: size.w,
             height: size.h,
             duration,
             mode,
             onComplete: () => { this._shapeArea?.queue_repaint(); onComplete && onComplete(); },
-        });
+        };
+        if (floating) props.y = anchor.y;
+        this.ease(props);
     }
 
     // --- navigation ---
@@ -1595,6 +1654,8 @@ class Notch extends St.Bin {
         case 'clipboard':
         case 'search':
         case 'shelf':
+        case 'messages':
+        case 'assistant':
             this._desktop?.refresh();
             break;
         case 'music':
@@ -1827,7 +1888,8 @@ class Notch extends St.Bin {
     _updateClosedVisual() {
         const minimal = this._settings.get_boolean('minimal');
         const pending = this._reminders.length > 0;
-        const showEyes = (this._settings.get_boolean('mascot') || pending) && !minimal;
+        // A floating blob always wears the mascot face.
+        const showEyes = (this._settings.get_boolean('mascot') || pending || this._isBlob()) && !minimal;
         const showViz = !showEyes && this._playing && !minimal;
         this._eyes.visible = showEyes;
         this._viz.visible = showViz;
