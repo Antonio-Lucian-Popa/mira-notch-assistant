@@ -1,5 +1,5 @@
 use mira_core::ai::{self, AiClient, AiConversation};
-use mira_core::messaging::{GatewayClient, Inbox};
+use mira_core::gowa::{self, Credentials, GowaClient, GowaManager};
 use mira_core::store::Config;
 use mira_core::workspace::{self, Workspace};
 use serde_json::json;
@@ -16,6 +16,8 @@ pub struct WorkspaceIface {
     receiver: Mutex<Option<mira_core::bridge::Receiver>>,
     /// Multi-turn history for the AI assistant page (in memory only).
     assistant: Mutex<AiConversation>,
+    /// The GOWA gateway child process, when Mira is managing it.
+    gowa: Mutex<Option<std::process::Child>>,
 }
 
 /// Load `config.toml` fresh so edits (provider, endpoint, enable flags) are
@@ -24,6 +26,45 @@ fn load_config() -> Config {
     mira_core::store::config_path()
         .and_then(|p| Config::load_or_default(&p))
         .unwrap_or_default()
+}
+
+/// Port the gateway listens on, parsed from the configured URL (default 3000).
+fn gateway_port(cfg: &Config) -> u16 {
+    cfg.messaging_gateway_url
+        .rsplit(':')
+        .next()
+        .and_then(|s| s.split('/').next())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3000)
+}
+
+/// Resolve basic-auth credentials: the generated pair when Mira manages GOWA,
+/// or a `user:pass` read from the configured env var for a user-run gateway.
+fn gowa_credentials(cfg: &Config) -> Option<Credentials> {
+    if cfg.messaging_auto_manage {
+        GowaManager::new().ok().and_then(|m| m.credentials().ok())
+    } else if !cfg.messaging_gateway_auth_env.is_empty() {
+        std::env::var(&cfg.messaging_gateway_auth_env)
+            .ok()
+            .and_then(|v| {
+                v.split_once(':').map(|(u, p)| Credentials {
+                    user: u.to_string(),
+                    pass: p.to_string(),
+                })
+            })
+    } else {
+        None
+    }
+}
+
+/// Build a GOWA client for the configured gateway.
+fn build_client(cfg: &Config) -> mira_core::Result<GowaClient> {
+    let client = GowaClient::new(cfg.messaging_gateway_url.clone(), gowa_credentials(cfg))?;
+    Ok(if cfg.messaging_device_id.is_empty() {
+        client
+    } else {
+        client.with_device(&cfg.messaging_device_id)
+    })
 }
 
 /// JSON snapshot of the assistant conversation plus provider readiness.
@@ -163,28 +204,109 @@ impl WorkspaceIface {
         .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
-    // --- messaging (opt-in local gateway, e.g. an unofficial WhatsApp bridge) ---
+    // --- messaging via the GOWA WhatsApp gateway (opt-in, unofficial) ---
 
-    /// Gateway connection status (and a pending QR when linking).
+    /// Download, verify and install the GOWA gateway binary for this platform.
+    async fn messaging_install(&self) -> String {
+        let cfg = load_config();
+        let version = cfg.messaging_gowa_version.trim();
+        let version = (!version.is_empty()).then(|| version.to_string());
+        let mgr = match GowaManager::new() {
+            Ok(m) => m,
+            Err(e) => return json!({"ok": false, "error": e.to_string()}).to_string(),
+        };
+        match mgr.install(version.as_deref()).await {
+            Ok(rep) => {
+                json!({"ok": true, "version": rep.version, "path": rep.path, "bytes": rep.bytes})
+                    .to_string()
+            }
+            Err(e) => json!({"ok": false, "error": e.to_string()}).to_string(),
+        }
+    }
+
+    /// Start the managed gateway (loopback, UI off, generated basic auth).
+    async fn messaging_start(&self) -> String {
+        let cfg = load_config();
+        let mgr = match GowaManager::new() {
+            Ok(m) => m,
+            Err(e) => return json!({"ok": false, "error": e.to_string()}).to_string(),
+        };
+        if !mgr.is_installed() {
+            return json!({"ok": false, "error": "gateway not installed"}).to_string();
+        }
+        let mut guard = self.gowa.lock().await;
+        let alive = guard
+            .as_mut()
+            .map(|c| matches!(c.try_wait(), Ok(None)))
+            .unwrap_or(false);
+        if !alive {
+            *guard = None;
+            let creds = match mgr.credentials() {
+                Ok(c) => c,
+                Err(e) => return json!({"ok": false, "error": e.to_string()}).to_string(),
+            };
+            match mgr.start(gateway_port(&cfg), &creds) {
+                Ok(child) => *guard = Some(child),
+                Err(e) => return json!({"ok": false, "error": e.to_string()}).to_string(),
+            }
+        }
+        json!({"ok": true, "running": true}).to_string()
+    }
+
+    /// Stop the managed gateway.
+    async fn messaging_stop(&self) -> String {
+        let mut guard = self.gowa.lock().await;
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        json!({"ok": true, "running": false}).to_string()
+    }
+
+    /// Gateway status: install/run state plus the WhatsApp link state, inlining
+    /// the login QR (as a data URI) while waiting to be scanned.
     async fn messaging_status(&self) -> String {
         let cfg = load_config();
         if !cfg.messaging_enabled {
             return json!({"enabled": false}).to_string();
         }
-        let base = cfg.messaging_gateway_url.clone();
-        let provider = cfg.messaging_provider.label();
-        match GatewayClient::with_base(&base) {
-            Ok(client) => match client.status().await {
+        let installed = GowaManager::new()
+            .map(|m| m.is_installed())
+            .unwrap_or(false);
+        let running = {
+            let mut g = self.gowa.lock().await;
+            g.as_mut()
+                .map(|c| matches!(c.try_wait(), Ok(None)))
+                .unwrap_or(false)
+        };
+        let mut out = json!({
+            "enabled": true,
+            "auto_manage": cfg.messaging_auto_manage,
+            "installed": installed,
+            "running": running,
+            "provider": cfg.messaging_provider.label(),
+            "gateway": cfg.messaging_gateway_url,
+        });
+        match build_client(&cfg) {
+            Ok(client) => match client.provider_status().await {
                 Ok(status) => {
-                    json!({"enabled": true, "provider": provider, "gateway": base, "status": status})
-                        .to_string()
+                    if let mira_core::messaging::ProviderStatus::WaitingForScan { qr } = &status {
+                        if let Ok(png) = client.fetch_qr_png(qr).await {
+                            out["qr_png"] = json!(gowa::png_data_uri(&png));
+                        }
+                    }
+                    out["status"] =
+                        serde_json::to_value(&status).unwrap_or(json!({"state": "disconnected"}));
                 }
-                Err(e) => json!({"enabled": true, "provider": provider, "gateway": base,
-                    "status": {"state": "disconnected"}, "error": e.to_string()})
-                .to_string(),
+                Err(e) => {
+                    out["status"] =
+                        json!({"state": if running { "connecting" } else { "disconnected" }});
+                    out["error"] = json!(e.to_string());
+                }
             },
-            Err(e) => json!({"enabled": true, "error": e.to_string()}).to_string(),
+            Err(e) => out["error"] = json!(e.to_string()),
         }
+        out.to_string()
     }
 
     /// One-line-per-chat inbox snapshot, most recent first.
@@ -193,63 +315,42 @@ impl WorkspaceIface {
         if !cfg.messaging_enabled {
             return json!({"enabled": false, "chats": []}).to_string();
         }
-        let base = cfg.messaging_gateway_url.clone();
-        let client = match GatewayClient::with_base(&base) {
+        let client = match build_client(&cfg) {
             Ok(c) => c,
             Err(e) => {
                 return json!({"enabled": true, "chats": [], "error": e.to_string()}).to_string()
             }
         };
-        let status = client.status().await.unwrap_or_default();
-        match client.conversations().await {
-            Ok(convs) => {
-                let inbox = Inbox {
-                    provider: cfg.messaging_provider,
-                    status,
-                    conversations: convs,
-                };
-                json!({
-                    "enabled": true,
-                    "provider": cfg.messaging_provider.label(),
-                    "status": inbox.status,
-                    "total_unread": inbox.total_unread(),
-                    "chats": inbox.one_line_per_chat(),
-                })
-                .to_string()
-            }
-            Err(e) => {
-                json!({"enabled": true, "status": status, "chats": [], "error": e.to_string()})
-                    .to_string()
-            }
+        match client.inbox(25).await {
+            Ok(inbox) => json!({
+                "enabled": true,
+                "provider": inbox.provider.label(),
+                "status": inbox.status,
+                "total_unread": inbox.total_unread(),
+                "chats": inbox.one_line_per_chat(),
+            })
+            .to_string(),
+            Err(e) => json!({"enabled": true, "chats": [], "error": e.to_string()}).to_string(),
         }
     }
 
-    /// Full message list for a single conversation.
+    /// Full message list for a single conversation (chat JID).
     async fn thread(&self, conversation_id: String) -> String {
         let cfg = load_config();
         if !cfg.messaging_enabled {
             return json!({"enabled": false, "messages": []}).to_string();
         }
-        let client = match GatewayClient::with_base(&cfg.messaging_gateway_url) {
+        let client = match build_client(&cfg) {
             Ok(c) => c,
             Err(e) => return json!({"messages": [], "error": e.to_string()}).to_string(),
         };
-        match client.conversations().await {
-            Ok(convs) => match convs.into_iter().find(|c| c.id == conversation_id) {
-                Some(conv) => json!({
-                    "id": conv.id,
-                    "title": conv.title,
-                    "muted": conv.muted,
-                    "messages": conv.messages,
-                })
-                .to_string(),
-                None => json!({"error": "conversation not found", "messages": []}).to_string(),
-            },
+        match client.messages(&conversation_id, 50).await {
+            Ok(messages) => json!({"id": conversation_id, "messages": messages}).to_string(),
             Err(e) => json!({"messages": [], "error": e.to_string()}).to_string(),
         }
     }
 
-    /// Send a reply into a conversation through the gateway.
+    /// Send a reply into a conversation (chat JID) through the gateway.
     async fn send_reply(&self, conversation_id: String, text: String) -> String {
         let cfg = load_config();
         if !cfg.messaging_enabled {
@@ -258,7 +359,7 @@ impl WorkspaceIface {
         if text.trim().is_empty() {
             return json!({"ok": false, "error": "empty message"}).to_string();
         }
-        let client = match GatewayClient::with_base(&cfg.messaging_gateway_url) {
+        let client = match build_client(&cfg) {
             Ok(c) => c,
             Err(e) => return json!({"ok": false, "error": e.to_string()}).to_string(),
         };

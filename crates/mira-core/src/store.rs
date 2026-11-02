@@ -70,6 +70,16 @@ pub struct Config {
     pub messaging_provider: crate::messaging::MessagingProvider,
     /// Base URL of the local gateway's HTTP API.
     pub messaging_gateway_url: String,
+    /// Let Mira download, verify and run the GOWA gateway itself. When false,
+    /// the user runs their own gateway and Mira only talks to it.
+    pub messaging_auto_manage: bool,
+    /// Pin a GOWA release (tag without the leading `v`, e.g. "7.6.0"); blank = latest.
+    pub messaging_gowa_version: String,
+    /// Optional X-Device-Id for multi-device GOWA setups; blank uses the default.
+    pub messaging_device_id: String,
+    /// For a user-run gateway: name of an env var holding `user:pass` basic
+    /// auth (never the credential itself). Unused when auto-managed.
+    pub messaging_gateway_auth_env: String,
 
     // --- AI assistant (opt-in) ---
     /// Master switch for the assistant page.
@@ -110,7 +120,11 @@ impl Default for Config {
 
             messaging_enabled: false,
             messaging_provider: crate::messaging::MessagingProvider::default(),
-            messaging_gateway_url: crate::messaging::DEFAULT_GATEWAY_URL.into(),
+            messaging_gateway_url: "http://127.0.0.1:3000".into(),
+            messaging_auto_manage: true,
+            messaging_gowa_version: String::new(),
+            messaging_device_id: String::new(),
+            messaging_gateway_auth_env: String::new(),
 
             ai_enabled: false,
             ai_provider: crate::ai::AiProviderKind::default(),

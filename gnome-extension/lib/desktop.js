@@ -293,6 +293,15 @@ export class Desktop {
         head.add_child(this.button('Reîmprospătează',()=>this.refreshInbox(),'mira-phone-section'));
         page.add_child(head);
         this.msgHint=this.label('','mira-work-caption'); this.msgHint.clutter_text.line_wrap=true; page.add_child(this.msgHint);
+        // Gateway controls (install / start / stop).
+        this.msgControls=new St.BoxLayout({style_class:'mira-work-actions',x_expand:true});
+        this.msgInstallBtn=this.button('Instalează WhatsApp',()=>this.installGateway(),'mira-button-primary');
+        this.msgStartBtn=this.button('Pornește',()=>this.client.workspace('MessagingStart',[],()=>this.later(400,()=>this.refreshInbox())),'mira-phone-section');
+        this.msgStopBtn=this.button('Oprește',()=>this.client.workspace('MessagingStop',[],()=>this.later(200,()=>this.refreshInbox())),'mira-phone-section');
+        this.msgControls.add_child(this.msgInstallBtn); this.msgControls.add_child(this.msgStartBtn); this.msgControls.add_child(this.msgStopBtn);
+        page.add_child(this.msgControls);
+        // QR image (shown while waiting for the phone to scan).
+        this.msgQr=new St.Icon({style_class:'mira-qr',icon_size:200}); this.msgQr.hide(); page.add_child(this.msgQr);
         // List mode.
         this.msgListScroll=new St.ScrollView({x_expand:true,y_expand:true,hscrollbar_policy:St.PolicyType.NEVER,vscrollbar_policy:St.PolicyType.AUTOMATIC});
         this.msgList=new St.BoxLayout({vertical:true,style_class:'mira-msg-list',x_expand:true});
@@ -322,23 +331,63 @@ export class Desktop {
     }
     refreshInbox(){
         if(!this.alive) return;
-        if(this.thread) this.client.workspace('Thread',[this.thread],d=>this.renderThread(d));
-        else this.client.workspace('Inbox',[],d=>this.renderInbox(d));
+        if(this.thread){ this.client.workspace('Thread',[this.thread],d=>this.renderThread(d)); return; }
+        this.client.workspace('MessagingStatus',[],s=>this.renderMsgStatus(s));
+        this.client.workspace('Inbox',[],d=>this.renderInbox(d));
+    }
+    installGateway(){
+        this.msgHint.text='Se descarcă și se verifică gateway-ul… (o singură dată, ~15 MB)';
+        this.msgInstallBtn.reactive=false;
+        this.client.workspace('MessagingInstall',[],res=>{
+            if(!this.alive) return;
+            this.msgInstallBtn.reactive=true;
+            if(res&&res.ok){ this.msgHint.text='Instalat ('+(res.version||'')+'). Pornește gateway-ul.'; this.client.workspace('MessagingStart',[],()=>this.later(500,()=>this.refreshInbox())); }
+            else this.msgHint.text='Instalare eșuată: '+((res&&res.error)||'eroare necunoscută');
+        });
+    }
+    renderQr(dataUri){
+        if(!dataUri){ this.msgQr.hide(); return; }
+        try{
+            const b64=dataUri.split(',')[1]||'';
+            const bytes=GLib.base64_decode(b64);
+            const path=GLib.build_filenamev([GLib.get_user_runtime_dir()||GLib.get_tmp_dir(),'mira-wa-qr.png']);
+            GLib.file_set_contents(path,bytes);
+            const file=Gio.File.new_for_path(path);
+            this.msgQr.gicon=new Gio.FileIcon({file});
+            this.msgQr.show();
+        }catch(e){ this.msgQr.hide(); }
+    }
+    renderMsgStatus(s){
+        if(!this.alive||this.n._pageNames[this.n._page]!=='messages') return;
+        if(!s||s.enabled===false){
+            this.msgBadge.text='● Dezactivat';
+            this.msgHint.text='Activează mesageria în config.toml: messaging_enabled = true (implicit folosește gateway-ul GOWA, pe care Mira îl instalează).';
+            this.msgControls.hide(); this.msgQr.hide(); this.msgList.destroy_all_children(); return;
+        }
+        this.msgControls.show();
+        const st=(s.status&&s.status.state)||'disconnected';
+        this.msgBadge.text={connected:'● Conectat',connecting:'● Conectare…',waiting_for_scan:'● Scanează QR',disconnected:'● Deconectat'}[st]||'● …';
+        const auto=s.auto_manage!==false;
+        // Button visibility by lifecycle.
+        this.msgInstallBtn.visible=auto&&!s.installed;
+        this.msgStartBtn.visible=auto&&s.installed&&!s.running;
+        this.msgStopBtn.visible=auto&&s.running;
+        // QR + hint.
+        if(st==='waiting_for_scan'&&s.qr_png){ this.renderQr(s.qr_png); this.msgHint.text='Scanează cu telefonul: WhatsApp › Dispozitive conectate › Conectează un dispozitiv.'; }
+        else { this.msgQr.hide();
+            if(s.error) this.msgHint.text='Gateway: '+s.error;
+            else if(auto&&!s.installed) this.msgHint.text='Apasă „Instalează WhatsApp" — Mira descarcă și verifică gateway-ul GOWA (open-source).';
+            else if(auto&&!s.running) this.msgHint.text='Gateway instalat. Apasă „Pornește".';
+            else if(st==='connected') this.msgHint.text='Conectat · '+(s.provider||'WhatsApp');
+            else if(st==='connecting') this.msgHint.text='Se conectează la WhatsApp…';
+            else this.msgHint.text='Gateway pornit, se așteaptă conexiunea.';
+        }
     }
     renderInbox(data){
         if(!this.alive||this.n._pageNames[this.n._page]!=='messages') return;
-        if(data.enabled===false){
-            this.msgBadge.text='● Dezactivat';
-            this.msgHint.text='Activează mesageria în config.toml: messaging_enabled = true. Apoi rulează un gateway local (ex. GOWA).';
-            this.msgList.destroy_all_children(); return;
-        }
-        const st=(data.status&&data.status.state)||'disconnected';
-        this.msgBadge.text={connected:'● Conectat',connecting:'● Conectare…',waiting_for_scan:'● Scanează QR',disconnected:'● Deconectat'}[st]||'● …';
-        if(data.error) this.msgHint.text='Gateway indisponibil: '+data.error+' · pornește-l pe '+(data.gateway||'');
-        else if(st==='waiting_for_scan') this.msgHint.text='WhatsApp › Dispozitive conectate › Conectează un dispozitiv. Cod: '+((data.status&&data.status.qr)||'');
-        else if(st==='connected') this.msgHint.text=(data.total_unread||0)+' necitite · '+(data.provider||'');
-        else this.msgHint.text='Neconectat la '+(data.provider||'gateway')+'.';
         this.msgList.destroy_all_children();
+        if(!data||data.enabled===false) return;
+        const st=(data.status&&data.status.state)||'';
         for(const c of (data.chats||[])) this.msgList.add_child(this.chatRow(c));
         if(!(data.chats||[]).length && st==='connected') this.msgList.add_child(this.label('Nicio conversație încă.'));
     }

@@ -27,6 +27,8 @@ qrcodegen = "1.8"
 sha2 = "0.10"
 getrandom = "0.2"
 base64 = "0.22"
+# Extract the GOWA gateway binary from its release zip (deflate only to stay lean).
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["rt", "macros", "sync", "time", "test-util"] }

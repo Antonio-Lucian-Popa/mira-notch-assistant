@@ -15,6 +15,7 @@ pub mod ai;
 pub mod app;
 pub mod error;
 pub mod event;
+pub mod gowa;
 pub mod lrclib;
 pub mod lyrics;
 pub mod messaging;
