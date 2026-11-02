@@ -878,11 +878,12 @@
 .mira-tile-control:hover {opacity:225;}
 .mira-tile-control:focus {box-shadow:0 0 7px 0 rgba(181,233,239,.7);}
 
-/* All sections fit in one bottom row; only the active section gets a label. */
-.mira-top-tabs {padding:4px;spacing:1px;}
-.mira-top-tab {min-width:14px;min-height:28px;padding:0 4px;}
-.mira-tab-content {spacing:4px;font-size:10px;}
-.mira-nav-label {max-width:58px;}
+/* All sections fit in one bottom row; only the active section gets a label.
+ * Roomier than before: with the wider notch each icon gets space to breathe. */
+.mira-top-tabs {padding:5px 9px;spacing:4px;}
+.mira-top-tab {min-width:20px;min-height:32px;padding:0 8px;border-radius:12px;}
+.mira-tab-content {spacing:6px;font-size:11px;}
+.mira-nav-label {max-width:64px;}
 
 /* --- Messages (one-line-per-chat inbox, thread + quick reply) --- */
 .mira-msg-head,.mira-ai-head {spacing:8px;padding:2px 2px 4px 2px;}

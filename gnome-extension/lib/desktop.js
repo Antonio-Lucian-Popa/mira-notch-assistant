@@ -78,6 +78,8 @@ export class Desktop {
         this.menuManager = new PopupMenu.PopupMenuManager(this.n); this.menuManager.addMenu(this.menu);
         for (const [label, mode] of [['Urmărește mouse-ul · întârziere 0.5s', 'follow'], ['Pin · rămâi aici', 'pinned'], ['Free roam · explorează', 'roam'], ['Acasă · înapoi sus', 'docked']])
             this.menu.addAction(label, () => mode === 'docked' ? this.home() : this.setMode(mode));
+        for (const [label, corner] of [['Bulină · colț dreapta-jos', 'br'], ['Bulină · colț stânga-jos', 'bl'], ['Bulină · colț dreapta-sus', 'tr'], ['Bulină · colț stânga-sus', 'tl']])
+            this.menu.addAction(label, () => this.n.snapToCorner(corner));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         for (const [label, page] of [['Raft de fișiere', 'shelf'], ['Sticky notepad', 'notes'], ['Clipboard', 'clipboard'], ['Caută în foldere', 'search']]) this.menu.addAction(label, () => this.openPage(page));
         this.menu.addAction('Telefon · asociere și taste',()=>this.openPage('phone'));
@@ -114,8 +116,10 @@ export class Desktop {
     openPage(name) { this.n.setPage(this.n._pageNames.indexOf(name)); this.n.open(); this.refresh(); }
     setMode(mode) {this.mode = mode; this.settings.set_string('desktop-motion', mode); this.n.add_style_class_name('mira-floating'); if (this.grip) this.grip.visible = mode !== 'docked';}
     home() {
+        this.settings.set_string('desktop-corner', '');
         this.setMode('docked'); this.drag = null; this.grab?.dismiss(); this.grab = null;
         if (this.grip) this.grip.visible = false;
+        this.n._computeSizes();
         this.n.close(); this.n._reposition(this.n._closed.w); this.n.remove_style_class_name('mira-floating');
     }
     bounds(x, y) {return Main.layoutManager.monitors.find(m => x >= m.x && x < m.x+m.width && y >= m.y && y < m.y+m.height) ?? Main.layoutManager.primaryMonitor;}
@@ -176,7 +180,7 @@ export class Desktop {
         if (this.drag && type === Clutter.EventType.MOTION) {
             const d=this.drag, dx=x-d.x, dy=y-d.y; d.vy=(y-d.lastY)/Math.max(1,e.get_time()-d.lastTime); d.lastY=y; d.lastTime=e.get_time();
             if (Math.abs(dx)+Math.abs(dy)<6 && !d.moved) return Clutter.EVENT_STOP;
-            d.moved=true; this.setMode('pinned');
+            d.moved=true; this.settings.set_string('desktop-corner',''); this.setMode('pinned');
             if (d.kind==='resize') {
                 this.n._hoverSize={w:Math.max(440,Math.min(960,d.w+dx)),h:Math.max(260,Math.min(760,d.h+dy)),r:26};
                 this.n.set_size(this.n._hoverSize.w,this.n._hoverSize.h);
