@@ -1,0 +1,17 @@
+[package]
+name = "mira-hook"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Tiny fail-open relay that forwards Claude Code hook events to the Mira daemon and waits for an approval decision."
+
+[dependencies]
+mira-core = { path = "../mira-core" }
+serde_json = { workspace = true }
+
+[[bin]]
+name = "mira-hook"
+path = "src/main.rs"

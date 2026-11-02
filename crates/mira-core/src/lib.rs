@@ -11,6 +11,7 @@
 //! * **Local-first** — lyrics use [`lrclib`]; [`bridge`] is an opt-in authenticated LAN service.
 //! * **Lightweight** — no heavy runtime; a current-thread Tokio runtime is enough.
 
+pub mod agent;
 pub mod ai;
 pub mod app;
 pub mod error;

@@ -11,6 +11,8 @@ fn main() {
 }
 
 #[cfg(target_os = "linux")]
+mod agents;
+#[cfg(target_os = "linux")]
 mod dbus;
 #[cfg(target_os = "linux")]
 mod workspace;
@@ -187,8 +189,22 @@ mod linux {
         server
             .at(PATH, crate::workspace::WorkspaceIface::new())
             .await?;
+        let agent_server = Arc::new(Mutex::new(crate::agents::AgentServer::new()));
+        server
+            .at(PATH, crate::agents::AgentsIface::new(agent_server.clone()))
+            .await?;
         conn.request_name(BUS_NAME).await?;
         tracing::info!("mira-daemon serving {BUS_NAME} at {PATH}");
+
+        // Serve the agent hook socket (mira-hook connects here).
+        {
+            let agent_server = agent_server.clone();
+            tokio::spawn(async move {
+                if let Err(e) = crate::agents::serve(agent_server).await {
+                    tracing::warn!("agent socket stopped: {e}");
+                }
+            });
+        }
 
         // Start the data sources.
         {

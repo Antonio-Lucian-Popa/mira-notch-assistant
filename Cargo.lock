@@ -984,6 +984,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mira-hook"
+version = "0.7.0"
+dependencies = [
+ "mira-core",
+ "serde_json",
+]
+
+[[package]]
 name = "mira-platform-linux"
 version = "0.7.0"
 dependencies = [

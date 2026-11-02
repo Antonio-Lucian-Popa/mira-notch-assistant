@@ -915,3 +915,20 @@
 .mira-reply-send {min-width:36px;border-radius:16px;padding:8px 12px;font-weight:700;background-color:#2ee67a;color:#06130b;}
 .mira-reply-send:hover {background-color:#4ff295;}
 .mira-qr {background-color:#ffffff;border-radius:10px;padding:8px;}
+
+/* --- Agents page (Claude Code sessions + approvals) --- */
+.mira-agents-list {spacing:6px;padding:2px;}
+.mira-agent-card {spacing:3px;padding:8px 10px;border-radius:12px;background-color:#171a20;border:1px solid rgba(255,255,255,.06);}
+.mira-agent-card.waiting {border-color:#5cc8ff;background-color:#13202b;}
+.mira-agent-name {font-size:13px;font-weight:600;color:#e7f2f4;}
+.mira-agent-state {font-size:10px;color:#8fb0c0;}
+.mira-agent-last {font-size:11px;color:#9eb6c8;max-width:360px;}
+.mira-approval {spacing:6px;padding:11px 12px;border-radius:14px;background-color:#102232;border:1px solid #2f88c7;margin-bottom:4px;}
+.mira-approval-title {font-size:13px;font-weight:700;color:#d6ecff;}
+.mira-approval-detail {font-size:12px;color:#bcd6e6;}
+.mira-btn-allow {background-color:#1f6f45;color:#eafff2;font-weight:700;}
+.mira-btn-allow:hover {background-color:#2a9159;}
+.mira-btn-always {background-color:#235c86;color:#e6f4ff;font-weight:600;}
+.mira-btn-always:hover {background-color:#2f77aa;}
+.mira-btn-deny {background-color:#6e2430;color:#ffe9ec;font-weight:600;}
+.mira-btn-deny:hover {background-color:#8a2f3d;}
