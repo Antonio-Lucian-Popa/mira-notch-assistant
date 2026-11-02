@@ -7,7 +7,9 @@
 
 use tokio::sync::{broadcast, mpsc};
 
+use crate::ai::AiConversation;
 use crate::lyrics::Lyrics;
+use crate::messaging::Inbox;
 use crate::model::{NowPlaying, Power, SystemEvent};
 
 /// Something happened that the UI may care about.
@@ -29,6 +31,10 @@ pub enum AppEvent {
     /// A fullscreen app appeared (`true`) or went away (`false`); the notch
     /// hides while `true`.
     Fullscreen(bool),
+    /// The messaging inbox changed (new/updated chats, status, unread counts).
+    Inbox(Inbox),
+    /// The AI assistant conversation changed (a new turn, or pending toggled).
+    Assistant(AiConversation),
 }
 
 /// A request from the UI to control the active media player.

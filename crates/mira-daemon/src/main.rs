@@ -454,6 +454,9 @@ mod linux {
                         dbus::emit_system(s).await;
                     }
                 }
+                // Messaging and AI state live in core/UI; the daemon does not yet
+                // expose them over D-Bus. The arms keep the match exhaustive.
+                AppEvent::Inbox(_) | AppEvent::Assistant(_) => {}
             }
         }
     }

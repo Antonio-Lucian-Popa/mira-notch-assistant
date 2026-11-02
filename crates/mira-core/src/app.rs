@@ -7,8 +7,10 @@
 //! extension stay free of business logic — the daemon computes the active line
 //! and signals the index.
 
+use crate::ai::AiConversation;
 use crate::event::AppEvent;
 use crate::lyrics::Lyrics;
+use crate::messaging::Inbox;
 use crate::model::{NowPlaying, Power};
 
 /// The complete snapshot the notch renders.
@@ -20,6 +22,10 @@ pub struct AppState {
     pub fullscreen: bool,
     /// Index of the currently highlighted lyric line, if any.
     pub active_line: Option<usize>,
+    /// Messaging inbox (empty/disconnected unless the gateway is enabled).
+    pub inbox: Inbox,
+    /// AI assistant conversation (empty unless the assistant is used).
+    pub assistant: AiConversation,
 }
 
 impl AppState {
@@ -63,6 +69,16 @@ impl AppState {
             // Transient alerts don't alter persistent state; the host animates
             // them directly. They always warrant a draw.
             AppEvent::System(_) => true,
+            AppEvent::Inbox(inbox) => {
+                let changed = self.inbox != *inbox;
+                self.inbox = inbox.clone();
+                changed
+            }
+            AppEvent::Assistant(conv) => {
+                let changed = self.assistant != *conv;
+                self.assistant = conv.clone();
+                changed
+            }
         }
     }
 
